@@ -34,6 +34,7 @@ const generateFlashcards = async (req, res) => {
     const flashcardData = JSON.parse(cleanedResponse);
 
     const newFlashcardSet = new Flashcard({
+      userId: req.user.id,
       noteId,
       title: flashcardData.title,
       cards: flashcardData.cards,
@@ -49,7 +50,7 @@ const generateFlashcards = async (req, res) => {
 
 const getFlashcardsByNoteId = async (req, res) => {
   try {
-    const flashcards = await Flashcard.find({ noteId: req.params.noteId });
+    const flashcards = await Flashcard.find({ noteId: req.params.noteId, userId: req.user.id });
     res.json(flashcards);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching flashcards', error: error.message });

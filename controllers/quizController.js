@@ -50,7 +50,7 @@ const generateQuiz = async (req, res) => {
 
 const getQuizzesByNoteId = async (req, res) => {
   try {
-    const quizzes = await Quiz.find({ noteId: req.params.noteId });
+    const quizzes = await Quiz.find({ noteId: req.params.noteId, userId: req.user.id });
     res.json(quizzes);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching quizzes', error: error.message });

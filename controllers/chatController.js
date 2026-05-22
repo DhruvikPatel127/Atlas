@@ -9,7 +9,7 @@ const sendMessage = async (req, res) => {
     // Check if noteId is provided and is a valid ObjectId
     const isValidObjectId = noteId && /^[0-9a-fA-F]{24}$/.test(noteId);
     
-    let chat = isValidObjectId ? await Chat.findOne({ noteId }) : null;
+    let chat = isValidObjectId ? await Chat.findOne({ noteId, userId: req.user.id }) : null;
 
     let history = [];
     if (chat) {
@@ -50,6 +50,7 @@ const sendMessage = async (req, res) => {
 
     if (!chat) {
       chat = new Chat({
+        userId: req.user.id,
         noteId: isValidObjectId ? noteId : null,
         messages: [
           ...history,
@@ -72,7 +73,7 @@ const sendMessage = async (req, res) => {
 
 const getChatByNoteId = async (req, res) => {
   try {
-    const chat = await Chat.findOne({ noteId: req.params.noteId });
+    const chat = await Chat.findOne({ noteId: req.params.noteId, userId: req.user.id });
     if (!chat) return res.json({ messages: [] });
     res.json(chat);
   } catch (error) {

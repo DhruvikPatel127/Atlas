@@ -21,10 +21,12 @@ const uploadNote = async (req, res) => {
     }
 
     const newNote = new Note({
+      userId: req.user.id,
       title: req.body.title || req.file.originalname,
       content: extractedText,
       fileUrl: filePath,
       fileType: req.file.mimetype,
+      subject: req.body.subject || 'General',
     });
 
     await newNote.save();
@@ -37,7 +39,7 @@ const uploadNote = async (req, res) => {
 
 const getNotes = async (req, res) => {
   try {
-    const notes = await Note.find().sort({ createdAt: -1 });
+    const notes = await Note.find({ userId: req.user.id }).sort({ createdAt: -1 });
     res.json(notes);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching notes', error: error.message });
