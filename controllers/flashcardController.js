@@ -33,8 +33,13 @@ const generateFlashcards = async (req, res) => {
     const cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
     const flashcardData = JSON.parse(cleanedResponse);
 
+    const userId = req.user.id || req.user._id;
+    if (!userId) {
+      return res.status(401).json({ message: 'User ID not found in token. Please log in again.' });
+    }
+
     const newFlashcardSet = new Flashcard({
-      userId: req.user.id,
+      userId: userId,
       noteId,
       title: flashcardData.title,
       cards: flashcardData.cards,

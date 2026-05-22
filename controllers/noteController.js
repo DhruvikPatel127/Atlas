@@ -4,6 +4,11 @@ const { extractTextFromBuffer } = require('./geminiController');
 
 const uploadNote = async (req, res) => {
   try {
+    const userId = req.user.id || req.user._id;
+    if (!userId) {
+      return res.status(401).json({ message: 'User ID not found in token. Please log in again.' });
+    }
+
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
@@ -21,7 +26,7 @@ const uploadNote = async (req, res) => {
     }
 
     const newNote = new Note({
-      userId: req.user.id,
+      userId: userId,
       title: req.body.title || req.file.originalname,
       content: extractedText,
       fileUrl: filePath,
@@ -39,7 +44,8 @@ const uploadNote = async (req, res) => {
 
 const getNotes = async (req, res) => {
   try {
-    const notes = await Note.find({ userId: req.user.id }).sort({ createdAt: -1 });
+    const userId = req.user.id || req.user._id;
+    const notes = await Note.find({ userId: userId }).sort({ createdAt: -1 });
     res.json(notes);
   } catch (error) {
     res.status(500).json({ message: 'Error fetching notes', error: error.message });
