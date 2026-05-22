@@ -12,16 +12,17 @@ if (process.env.GEMINI_API_KEY) {
 }
 
 // Primary models to try in order of preference
+// Note: gemini-pro and gemini-1.0-pro were deprecated/replaced by 2026.
+// Using Gemini 2.5 and 3.0 series which are standard now.
 const MODELS = [
+  "gemini-3.1-flash-latest",
+  "gemini-3.1-pro-latest",
+  "gemini-3-flash-latest",
+  "gemini-3-pro-latest",
+  "gemini-2.5-flash-latest",
+  "gemini-2.5-pro-latest",
   "gemini-1.5-flash", 
-  "models/gemini-1.5-flash",
-  "gemini-1.5-flash-latest",
-  "gemini-1.5-pro", 
-  "models/gemini-1.5-pro",
-  "gemini-pro",
-  "models/gemini-pro",
-  "gemini-1.0-pro",
-  "models/gemini-1.0-pro"
+  "gemini-1.5-pro"
 ];
 
 const generateContent = async (prompt, feature = 'general') => {
@@ -111,8 +112,13 @@ const extractTextFromBuffer = async (buffer, mimeType) => {
     throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
   }
   let lastError;
-  // Flash is better for vision/extraction tasks
-  const visionModels = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+  // Use latest Flash models for extraction as they are faster and cheaper
+  const visionModels = [
+    "gemini-3.1-flash-latest",
+    "gemini-3-flash-latest",
+    "gemini-2.5-flash-latest",
+    "gemini-1.5-flash"
+  ];
   for (const modelName of visionModels) {
     try {
       console.log(`Attempting extraction with ${modelName}...`);
