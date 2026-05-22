@@ -4,20 +4,24 @@ const { aiRequestCounter, aiTokensUsed } = require('../config/monitoring');
 
 dotenv.config();
 
-// Using the exact model name you found: 'gemini-3.5-flash'
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Initialize genAI only if key is available
+let genAI;
+if (process.env.GEMINI_API_KEY) {
+  genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+}
 
 // Primary models to try in order of preference
 const MODELS = [
   "gemini-1.5-flash", 
-  "gemini-1.5-flash-latest",
+  "gemini-pro",
   "gemini-1.5-pro", 
-  "gemini-1.5-pro-latest",
-  "gemini-1.0-pro",
-  "gemini-pro"
+  "gemini-1.0-pro"
 ];
 
 const generateContent = async (prompt, feature = 'general') => {
+  if (!genAI) {
+    throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
+  }
   let lastError;
   for (const modelName of MODELS) {
     try {
@@ -47,6 +51,9 @@ const generateContent = async (prompt, feature = 'general') => {
 };
 
 const chatWithGemini = async (history, message, feature = 'chat') => {
+  if (!genAI) {
+    throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
+  }
   let lastError;
   for (const modelName of MODELS) {
     try {
@@ -72,9 +79,12 @@ const chatWithGemini = async (history, message, feature = 'chat') => {
 };
 
 const extractTextFromBuffer = async (buffer, mimeType) => {
+  if (!genAI) {
+    throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
+  }
   let lastError;
   // Flash is better for vision/extraction tasks
-  const visionModels = ["gemini-1.5-flash", "gemini-1.5-pro"];
+  const visionModels = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
   for (const modelName of visionModels) {
     try {
       console.log(`Attempting extraction with ${modelName}...`);

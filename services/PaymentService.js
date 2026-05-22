@@ -1,5 +1,4 @@
 const Razorpay = require('razorpay');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const crypto = require('crypto');
 const User = require('../models/User');
 const SubscriptionPlan = require('../models/SubscriptionPlan');
@@ -7,6 +6,11 @@ const Transaction = require('../models/Transaction');
 const Subscription = require('../models/Subscription');
 const emailService = require('./EmailService');
 const analyticsService = require('./AnalyticsService');
+
+let stripe;
+if (process.env.STRIPE_SECRET_KEY) {
+  stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+}
 
 let razorpay;
 if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
@@ -133,7 +137,7 @@ class PaymentService {
   // ============ CREATE STRIPE PAYMENT (US/Global) ============
   async createStripeCheckout(userId, planTier) {
     try {
-      if (!process.env.STRIPE_SECRET_KEY) throw new Error('Stripe not configured');
+      if (!stripe) throw new Error('Stripe not configured');
 
       const plan = await SubscriptionPlan.findOne({ tier: planTier });
       if (!plan) throw new Error('Plan not found');
@@ -183,6 +187,7 @@ class PaymentService {
   // ============ WEBHOOK HANDLERS ============
   async handleStripeWebhook(signature, rawBody) {
     try {
+      if (!stripe) throw new Error('Stripe not configured');
       const event = stripe.webhooks.constructEvent(
         rawBody,
         signature,

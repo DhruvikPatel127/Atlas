@@ -6,6 +6,13 @@ const path = require('path');
 
 dotenv.config();
 
+console.log('--- Environment Variable Check ---');
+console.log('MONGODB_URI:', process.env.MONGODB_URI ? 'LOADED' : 'MISSING');
+console.log('GEMINI_API_KEY:', process.env.GEMINI_API_KEY ? 'LOADED' : 'MISSING');
+console.log('STRIPE_SECRET_KEY:', process.env.STRIPE_SECRET_KEY ? 'LOADED' : 'MISSING');
+console.log('RAZORPAY_KEY_ID:', process.env.RAZORPAY_KEY_ID ? 'LOADED' : 'MISSING');
+console.log('---------------------------------');
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
