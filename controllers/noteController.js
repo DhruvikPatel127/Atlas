@@ -1,6 +1,5 @@
 const Note = require('../models/Note');
-// Using the direct path to the library's main file to avoid 'not a function' errors
-const pdf = require('pdf-parse/lib/pdf-parse.js');
+const pdf = require('pdf-parse');
 const fs = require('fs');
 
 const uploadNote = async (req, res) => {
@@ -15,9 +14,16 @@ const uploadNote = async (req, res) => {
     if (req.file.mimetype === 'application/pdf') {
       const dataBuffer = fs.readFileSync(filePath);
       try {
-        // Explicitly calling the function from the required module
-        const data = await pdf(dataBuffer);
-        extractedText = data.text;
+        // Handle cases where pdf-parse might be imported differently
+        let pdfData;
+        if (typeof pdf === 'function') {
+          pdfData = await pdf(dataBuffer);
+        } else if (pdf && typeof pdf.default === 'function') {
+          pdfData = await pdf.default(dataBuffer);
+        } else {
+          throw new Error('pdf-parse is not a function');
+        }
+        extractedText = pdfData.text;
       } catch (pdfError) {
         console.error('PDF parsing error:', pdfError);
         extractedText = "Error extracting text from PDF. The file might be corrupted or protected.";
