@@ -14,14 +14,16 @@ const uploadNote = async (req, res) => {
     if (req.file.mimetype === 'application/pdf') {
       const dataBuffer = fs.readFileSync(filePath);
       try {
-        // Handle cases where pdf-parse might be imported differently
+        // More resilient way to handle pdf-parse
         let pdfData;
         if (typeof pdf === 'function') {
           pdfData = await pdf(dataBuffer);
         } else if (pdf && typeof pdf.default === 'function') {
           pdfData = await pdf.default(dataBuffer);
         } else {
-          throw new Error('pdf-parse is not a function');
+          // If both fail, try calling it as a constructor or just log the type
+          console.log('pdf-parse type:', typeof pdf);
+          pdfData = await pdf(dataBuffer);
         }
         extractedText = pdfData.text;
       } catch (pdfError) {
