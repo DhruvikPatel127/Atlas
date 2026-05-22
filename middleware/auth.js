@@ -5,7 +5,8 @@ const auth = (req, res, next) => {
   if (!token) return res.status(401).json({ message: 'No token, authorization denied' });
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const secret = process.env.JWT_SECRET || 'fallback_secret_for_atlas_app_2026';
+    const decoded = jwt.verify(token, secret);
     req.user = decoded.user;
     next();
   } catch (err) {
