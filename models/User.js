@@ -6,6 +6,23 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   subjects: [{ type: String }], // Custom subjects added by user
+  
+  // Subscription fields
+  subscription_tier: { 
+    type: String, 
+    enum: ['free', 'pro', 'premium'], 
+    default: 'free' 
+  },
+  subscription_id: { type: String },
+  subscription_expires_at: { type: Date },
+  
+  // Usage limits
+  ai_questions_daily_limit: { type: Number, default: 5 },
+  ai_questions_today: { type: Number, default: 0 },
+  last_ai_reset: { type: Date, default: Date.now },
+  document_limit: { type: Number, default: 3 }, // Total documents for free tier
+  storage_limit_mb: { type: Number, default: 100 },
+  
   createdAt: { type: Date, default: Date.now },
 });
 

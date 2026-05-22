@@ -1,5 +1,6 @@
 const Chat = require('../models/Chat');
 const Note = require('../models/Note');
+const User = require('../models/User');
 const { chatWithGemini } = require('./geminiController');
 
 const sendMessage = async (req, res) => {
@@ -52,6 +53,9 @@ const sendMessage = async (req, res) => {
     }
 
     const aiResponse = await chatWithGemini(history, message);
+
+    // Increment AI usage counter
+    await User.findByIdAndUpdate(userId, { $inc: { ai_questions_today: 1 } });
 
     if (!chat) {
       chat = new Chat({

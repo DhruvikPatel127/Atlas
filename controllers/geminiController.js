@@ -1,5 +1,6 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const dotenv = require('dotenv');
+const { aiRequestCounter, aiTokensUsed } = require('../config/monitoring');
 
 dotenv.config();
 
@@ -7,9 +8,16 @@ dotenv.config();
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Primary models to try in order of preference
-const MODELS = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"];
+const MODELS = [
+  "gemini-1.5-flash", 
+  "gemini-1.5-flash-latest",
+  "gemini-1.5-pro", 
+  "gemini-1.5-pro-latest",
+  "gemini-1.0-pro",
+  "gemini-pro"
+];
 
-const generateContent = async (prompt) => {
+const generateContent = async (prompt, feature = 'general') => {
   let lastError;
   for (const modelName of MODELS) {
     try {
@@ -17,25 +25,28 @@ const generateContent = async (prompt) => {
       const model = genAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent(prompt);
       const response = await result.response;
+      
+      // Track success
+      aiRequestCounter.labels(feature, modelName, 'success').inc();
+      // Estimate tokens (roughly 4 chars per token)
+      const tokenCount = Math.ceil((prompt.length + response.text().length) / 4);
+      aiTokensUsed.labels(feature, 'total').inc(tokenCount);
+      
       return response.text();
     } catch (error) {
       lastError = error;
+      aiRequestCounter.labels(feature, modelName, 'error').inc();
       console.error(`Gemini Error (${modelName}):`, error.message);
-      if (error.message.includes("429")) {
-        // Quota exceeded, no point in trying other models usually, but we can try
+      if (error.message.includes("429") || error.message.includes("404")) {
         continue;
       }
-      if (error.message.includes("404")) {
-        continue;
-      }
-      // If it's another error, try next model
       continue;
     }
   }
   throw lastError || new Error("All Gemini models failed");
 };
 
-const chatWithGemini = async (history, message) => {
+const chatWithGemini = async (history, message, feature = 'chat') => {
   let lastError;
   for (const modelName of MODELS) {
     try {
@@ -44,9 +55,15 @@ const chatWithGemini = async (history, message) => {
       const chat = model.startChat({ history });
       const result = await chat.sendMessage(message);
       const response = await result.response;
+      
+      aiRequestCounter.labels(feature, modelName, 'success').inc();
+      const tokenCount = Math.ceil((message.length + response.text().length) / 4);
+      aiTokensUsed.labels(feature, 'total').inc(tokenCount);
+      
       return response.text();
     } catch (error) {
       lastError = error;
+      aiRequestCounter.labels(feature, modelName, 'error').inc();
       console.error(`Gemini Chat Error (${modelName}):`, error.message);
       continue;
     }

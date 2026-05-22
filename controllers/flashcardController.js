@@ -27,7 +27,7 @@ const generateFlashcards = async (req, res) => {
     }
     Notes: ${note.content}`;
 
-    const aiResponse = await generateContent(prompt);
+    const aiResponse = await generateContent(prompt, 'flashcards');
     
     // Clean up the response
     const cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
@@ -37,6 +37,10 @@ const generateFlashcards = async (req, res) => {
     if (!userId) {
       return res.status(401).json({ message: 'User ID not found in token. Please log in again.' });
     }
+
+    // Increment AI usage counter
+    const User = require('../models/User');
+    await User.findByIdAndUpdate(userId, { $inc: { ai_questions_today: 1 } });
 
     const newFlashcardSet = new Flashcard({
       userId: userId,

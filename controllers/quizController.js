@@ -28,7 +28,7 @@ const generateQuiz = async (req, res) => {
     }
     Notes: ${note.content}`;
 
-    const aiResponse = await generateContent(prompt);
+    const aiResponse = await generateContent(prompt, 'quiz');
     
     // Clean up the response (Gemini sometimes adds markdown backticks)
     const cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
@@ -38,6 +38,10 @@ const generateQuiz = async (req, res) => {
     if (!userId) {
       return res.status(401).json({ message: 'User ID not found in token. Please log in again.' });
     }
+
+    // Increment AI usage counter
+    const User = require('../models/User');
+    await User.findByIdAndUpdate(userId, { $inc: { ai_questions_today: 1 } });
 
     const newQuiz = new Quiz({
       userId: userId,

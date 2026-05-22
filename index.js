@@ -9,17 +9,35 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Ensure uploads directory exists
+const { monitoringMiddleware, register } = require('./config/monitoring');
+
+// Ensure uploads and logs directory exists
 const fs = require('fs');
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
 }
+const logsDir = path.join(__dirname, 'logs');
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir);
+}
 
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(monitoringMiddleware);
 app.use('/uploads', express.static(uploadsDir));
+
+// Metrics endpoint
+app.get('/metrics', async (req, res) => {
+  try {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  } catch (ex) {
+    res.status(500).end(ex);
+  }
+});
+
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI)
@@ -32,6 +50,7 @@ app.use('/api/notes', require('./routes/noteRoutes'));
 app.use('/api/chat', require('./routes/chatRoutes'));
 app.use('/api/quiz', require('./routes/quizRoutes'));
 app.use('/api/flashcards', require('./routes/flashcardRoutes'));
+app.use('/api/payments', require('./routes/paymentRoutes'));
 
 app.get('/', (req, res) => {
   res.send('Atlas Backend API is running...');
