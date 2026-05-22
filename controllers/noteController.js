@@ -1,5 +1,5 @@
 const Note = require('../models/Note');
-const pdf = require('pdf-parse');
+const pdfParse = require('pdf-parse');
 const fs = require('fs');
 
 const uploadNote = async (req, res) => {
@@ -14,7 +14,12 @@ const uploadNote = async (req, res) => {
     if (req.file.mimetype === 'application/pdf') {
       const dataBuffer = fs.readFileSync(filePath);
       try {
-        const data = await pdf(dataBuffer);
+        // pdf-parse is sometimes exported as a function, sometimes as an object with a default property
+        const pdfExtractor = typeof pdfParse === 'function' ? pdfParse : pdfParse.default;
+        if (typeof pdfExtractor !== 'function') {
+          throw new Error('pdf-parse is not correctly imported');
+        }
+        const data = await pdfExtractor(dataBuffer);
         extractedText = data.text;
       } catch (pdfError) {
         console.error('PDF parsing error:', pdfError);
