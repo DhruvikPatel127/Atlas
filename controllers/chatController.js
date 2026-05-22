@@ -22,9 +22,10 @@ const sendMessage = async (req, res) => {
       if (isValidObjectId) {
         const note = await Note.findById(noteId);
         if (note) {
+          // Gemini requires the first message to be from 'user'
           history.push({
             role: 'user',
-            parts: [{ text: `Here are my notes: ${note.content}\n\nI want you to be my AI tutor. Help me understand these notes. Any questions I ask should be answered based on these notes if possible.` }],
+            parts: [{ text: `System: Use these notes for context: ${note.content}\n\nUser: Hi, I'd like to discuss these notes.` }],
           });
           history.push({
             role: 'model',
@@ -33,6 +34,11 @@ const sendMessage = async (req, res) => {
         }
       } else {
         // Fallback for when no note is provided
+        // Start with user message then model response to satisfy Gemini requirement
+        history.push({
+          role: 'user',
+          parts: [{ text: "Hello Atlas AI." }],
+        });
         history.push({
           role: 'model',
           parts: [{ text: "Hello! I'm Atlas AI. You haven't uploaded any notes yet, but I can still help you with your studies. What would you like to learn today?" }],

@@ -13,8 +13,13 @@ const uploadNote = async (req, res) => {
 
     if (req.file.mimetype === 'application/pdf') {
       const dataBuffer = fs.readFileSync(filePath);
-      const data = await pdf(dataBuffer);
-      extractedText = data.text;
+      try {
+        const data = await pdf(dataBuffer);
+        extractedText = data.text;
+      } catch (pdfError) {
+        console.error('PDF parsing error:', pdfError);
+        extractedText = "Error extracting text from PDF. The file might be corrupted or protected.";
+      }
     } else {
       // For images, we would ideally use OCR (like Tesseract.js or Gemini Vision API)
       // For now, let's just mark it as "Image content needs OCR"
