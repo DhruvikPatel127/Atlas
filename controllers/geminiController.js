@@ -12,9 +12,9 @@ if (process.env.GEMINI_API_KEY) {
 }
 
 // Primary models to try in order of preference
-// Note: gemini-pro and gemini-1.0-pro were deprecated/replaced by 2026.
-// Using Gemini 2.5 and 3.0 series which are standard now.
+// User specified gemini-3.5-flash as the working model for this environment.
 const MODELS = [
+  "gemini-3.5-flash",
   "gemini-3.1-flash-latest",
   "gemini-3.1-pro-latest",
   "gemini-3-flash-latest",
@@ -114,6 +114,7 @@ const extractTextFromBuffer = async (buffer, mimeType) => {
   let lastError;
   // Use latest Flash models for extraction as they are faster and cheaper
   const visionModels = [
+    "gemini-3.5-flash",
     "gemini-3.1-flash-latest",
     "gemini-3-flash-latest",
     "gemini-2.5-flash-latest",
