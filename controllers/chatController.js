@@ -5,7 +5,11 @@ const { chatWithGemini } = require('./geminiController');
 const sendMessage = async (req, res) => {
   try {
     const { noteId, message } = req.body;
-    let chat = await Chat.findOne({ noteId });
+    
+    // Check if noteId is provided and is a valid ObjectId
+    const isValidObjectId = noteId && /^[0-9a-fA-F]{24}$/.test(noteId);
+    
+    let chat = isValidObjectId ? await Chat.findOne({ noteId }) : null;
 
     let history = [];
     if (chat) {
@@ -14,8 +18,8 @@ const sendMessage = async (req, res) => {
         parts: msg.parts,
       }));
     } else {
-      // If it's the first message and there's a note, provide context
-      if (noteId) {
+      // If it's the first message and there's a valid note, provide context
+      if (isValidObjectId) {
         const note = await Note.findById(noteId);
         if (note) {
           history.push({
@@ -27,6 +31,12 @@ const sendMessage = async (req, res) => {
             parts: [{ text: "I've read your notes. How would you like to know?" }],
           });
         }
+      } else {
+        // Fallback for when no note is provided
+        history.push({
+          role: 'model',
+          parts: [{ text: "Hello! I'm Atlas AI. You haven't uploaded any notes yet, but I can still help you with your studies. What would you like to learn today?" }],
+        });
       }
     }
 

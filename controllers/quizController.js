@@ -5,6 +5,12 @@ const { generateContent } = require('./geminiController');
 const generateQuiz = async (req, res) => {
   try {
     const { noteId } = req.body;
+    
+    // Validate noteId
+    if (!noteId || !/^[0-9a-fA-F]{24}$/.test(noteId)) {
+      return res.status(400).json({ message: 'A valid Note ID is required to generate a quiz' });
+    }
+
     const note = await Note.findById(noteId);
     if (!note) return res.status(404).json({ message: 'Note not found' });
 

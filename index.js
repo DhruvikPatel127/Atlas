@@ -11,13 +11,6 @@ const PORT = process.env.PORT || 5000;
 
 // Ensure uploads directory exists
 const fs = require('fs');
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
-}
-
-// MiddlewareEnsure uploads directory exists
-const fs = require('fs');
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir);
