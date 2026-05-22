@@ -1,5 +1,6 @@
 const Note = require('../models/Note');
-const pdf = require('pdf-parse');
+// Using the direct path to the library's main file to avoid 'not a function' errors
+const pdf = require('pdf-parse/lib/pdf-parse.js');
 const fs = require('fs');
 
 const uploadNote = async (req, res) => {
@@ -14,7 +15,7 @@ const uploadNote = async (req, res) => {
     if (req.file.mimetype === 'application/pdf') {
       const dataBuffer = fs.readFileSync(filePath);
       try {
-        // More robust way to handle pdf-parse import
+        // Explicitly calling the function from the required module
         const data = await pdf(dataBuffer);
         extractedText = data.text;
       } catch (pdfError) {

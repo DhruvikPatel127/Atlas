@@ -5,8 +5,8 @@ dotenv.config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Trying 'gemini-1.5-flash' which is the standard model name
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+// Using 'gemini-pro' as it has the widest compatibility across all API versions
+const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
 const generateContent = async (prompt) => {
   try {
