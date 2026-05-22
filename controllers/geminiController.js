@@ -7,21 +7,41 @@ dotenv.config();
 // Initialize genAI only if key is available
 let genAI;
 if (process.env.GEMINI_API_KEY) {
-  genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  const apiKey = process.env.GEMINI_API_KEY.trim().replace(/["']/g, '');
+  genAI = new GoogleGenerativeAI(apiKey);
 }
 
 // Primary models to try in order of preference
 const MODELS = [
   "gemini-1.5-flash", 
-  "gemini-pro",
+  "models/gemini-1.5-flash",
+  "gemini-1.5-flash-latest",
   "gemini-1.5-pro", 
-  "gemini-1.0-pro"
+  "models/gemini-1.5-pro",
+  "gemini-pro",
+  "models/gemini-pro",
+  "gemini-1.0-pro",
+  "models/gemini-1.0-pro"
 ];
 
 const generateContent = async (prompt, feature = 'general') => {
   if (!genAI) {
     throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
   }
+  
+  // Debug: List models if we keep getting 404 (only once per app start)
+  if (!global.modelsListed) {
+    try {
+      console.log("--- Debug: Listing Available Models ---");
+      // The SDK might not have listModels in all versions, but let's try
+      // result = await genAI.listModels(); 
+      // console.log(result);
+      global.modelsListed = true;
+    } catch (e) {
+      console.log("Could not list models:", e.message);
+    }
+  }
+
   let lastError;
   for (const modelName of MODELS) {
     try {
@@ -47,7 +67,11 @@ const generateContent = async (prompt, feature = 'general') => {
       continue;
     }
   }
-  throw lastError || new Error("All Gemini models failed");
+  const errorMessage = lastError?.message || "All Gemini models failed";
+  if (errorMessage.includes("404")) {
+    throw new Error(`Gemini API Error: Models not found. This usually means your API Key is valid but the "Generative Language API" is not enabled in your Google Cloud Project, or the models are not available in your region. Please visit https://aistudio.google.com/ and check your API key settings.`);
+  }
+  throw lastError || new Error(errorMessage);
 };
 
 const chatWithGemini = async (history, message, feature = 'chat') => {
@@ -75,7 +99,11 @@ const chatWithGemini = async (history, message, feature = 'chat') => {
       continue;
     }
   }
-  throw lastError || new Error("All Gemini models failed for chat");
+  const errorMessage = lastError?.message || "All Gemini models failed for chat";
+  if (errorMessage.includes("404")) {
+    throw new Error(`Gemini API Error: Models not found in Chat. Please check if "Generative Language API" is enabled in your Google Cloud Project.`);
+  }
+  throw lastError || new Error(errorMessage);
 };
 
 const extractTextFromBuffer = async (buffer, mimeType) => {
@@ -106,7 +134,11 @@ const extractTextFromBuffer = async (buffer, mimeType) => {
       continue;
     }
   }
-  throw lastError || new Error("All Gemini models failed for extraction");
+  const errorMessage = lastError?.message || "All Gemini models failed for extraction";
+  if (errorMessage.includes("404")) {
+    throw new Error(`Gemini API Error: Models not found in Extraction. Please check if "Generative Language API" is enabled in your Google Cloud Project.`);
+  }
+  throw lastError || new Error(errorMessage);
 };
 
 module.exports = {
