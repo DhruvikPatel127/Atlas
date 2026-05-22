@@ -32,14 +32,14 @@ const generateContent = async (prompt) => {
 
 const chatWithGemini = async (history, message) => {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const chat = model.startChat({ history });
     const result = await chat.sendMessage(message);
     const response = await result.response;
     return response.text();
   } catch (error) {
     try {
-      const fallbackModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const fallbackModel = genAI.getGenerativeModel({ model: "gemini-pro" });
       const chat = fallbackModel.startChat({ history });
       const result = await chat.sendMessage(message);
       const response = await result.response;
@@ -50,7 +50,28 @@ const chatWithGemini = async (history, message) => {
   }
 };
 
+const extractTextFromBuffer = async (buffer, mimeType) => {
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const result = await model.generateContent([
+      "Extract all the text from this file and return it as a plain text string. If there are tables or diagrams, describe them simply.",
+      {
+        inlineData: {
+          data: buffer.toString("base64"),
+          mimeType: mimeType,
+        },
+      },
+    ]);
+    const response = await result.response;
+    return response.text();
+  } catch (error) {
+    console.error("Extraction error:", error.message);
+    throw error;
+  }
+};
+
 module.exports = {
   generateContent,
-  chatWithGemini
+  chatWithGemini,
+  extractTextFromBuffer,
 };

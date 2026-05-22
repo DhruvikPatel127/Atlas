@@ -1,6 +1,6 @@
 const Note = require('../models/Note');
-const pdf = require('pdf-parse');
 const fs = require('fs');
+const { extractTextFromBuffer } = require('./geminiController');
 
 const uploadNote = async (req, res) => {
   try {
@@ -9,31 +9,15 @@ const uploadNote = async (req, res) => {
     }
 
     const filePath = req.file.path;
+    const dataBuffer = fs.readFileSync(filePath);
     let extractedText = '';
 
-    if (req.file.mimetype === 'application/pdf') {
-      const dataBuffer = fs.readFileSync(filePath);
-      try {
-        // More resilient way to handle pdf-parse
-        let pdfData;
-        if (typeof pdf === 'function') {
-          pdfData = await pdf(dataBuffer);
-        } else if (pdf && typeof pdf.default === 'function') {
-          pdfData = await pdf.default(dataBuffer);
-        } else {
-          // If both fail, try calling it as a constructor or just log the type
-          console.log('pdf-parse type:', typeof pdf);
-          pdfData = await pdf(dataBuffer);
-        }
-        extractedText = pdfData.text;
-      } catch (pdfError) {
-        console.error('PDF parsing error:', pdfError);
-        extractedText = "Error extracting text from PDF. The file might be corrupted or protected.";
-      }
-    } else {
-      // For images, we would ideally use OCR (like Tesseract.js or Gemini Vision API)
-      // For now, let's just mark it as "Image content needs OCR"
-      extractedText = "Image content processing not fully implemented. Please use PDF for better results.";
+    try {
+      console.log(`Extracting text from ${req.file.mimetype}...`);
+      extractedText = await extractTextFromBuffer(dataBuffer, req.file.mimetype);
+    } catch (extractionError) {
+      console.error('Gemini extraction error:', extractionError);
+      extractedText = "AI extraction failed for this file. Please ensure it's a valid PDF or image.";
     }
 
     const newNote = new Note({

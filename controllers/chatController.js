@@ -50,7 +50,7 @@ const sendMessage = async (req, res) => {
 
     if (!chat) {
       chat = new Chat({
-        noteId,
+        noteId: isValidObjectId ? noteId : null,
         messages: [
           ...history,
           { role: 'user', parts: [{ text: message }] },
