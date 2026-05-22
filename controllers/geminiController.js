@@ -12,24 +12,29 @@ if (process.env.GEMINI_API_KEY) {
   console.error("API Key NOT found in environment variables!");
 }
 
-// Using the most standard model name
+// Using 'gemini-1.5-flash' which is the current stable identifier
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 const generateContent = async (prompt) => {
   try {
+    // Attempt with 1.5-flash
     const result = await model.generateContent(prompt);
     const response = await result.response;
     return response.text();
   } catch (error) {
-    if (error.status === 404) {
-      console.log("Model not found, trying fallback gemini-pro...");
+    console.error("Primary model error:", error.message);
+    
+    // Fallback logic for various errors including 404
+    try {
+      console.log("Attempting fallback with gemini-pro...");
       const fallbackModel = genAI.getGenerativeModel({ model: "gemini-pro" });
       const result = await fallbackModel.generateContent(prompt);
       const response = await result.response;
       return response.text();
+    } catch (fallbackError) {
+      console.error("All models failed:", fallbackError.message);
+      throw fallbackError;
     }
-    console.error("Gemini AI Error:", error);
-    throw error;
   }
 };
 
@@ -42,16 +47,19 @@ const chatWithGemini = async (history, message) => {
     const response = await result.response;
     return response.text();
   } catch (error) {
-    if (error.status === 404) {
-      console.log("Chat model not found, trying fallback gemini-pro...");
+    console.error("Primary chat error:", error.message);
+    
+    try {
+      console.log("Attempting chat fallback with gemini-pro...");
       const fallbackModel = genAI.getGenerativeModel({ model: "gemini-pro" });
       const chat = fallbackModel.startChat({ history });
       const result = await chat.sendMessage(message);
       const response = await result.response;
       return response.text();
+    } catch (fallbackError) {
+      console.error("All chat models failed:", fallbackError.message);
+      throw fallbackError;
     }
-    console.error("Gemini AI Chat Error:", error);
-    throw error;
   }
 };
 
