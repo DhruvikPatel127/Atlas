@@ -120,12 +120,6 @@ const getUserStats = async (req, res) => {
   }
 };
 
-module.exports = {
-  generateQuiz,
-  submitQuizScore,
-  getUserStats
-};
-
 const getQuizzesByNoteId = async (req, res) => {
   try {
     const quizzes = await Quiz.find({ noteId: req.params.noteId, userId: req.user.id });
@@ -137,5 +131,7 @@ const getQuizzesByNoteId = async (req, res) => {
 
 module.exports = {
   generateQuiz,
+  submitQuizScore,
+  getUserStats,
   getQuizzesByNoteId,
 };
