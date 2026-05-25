@@ -11,6 +11,9 @@ const quizSchema = new mongoose.Schema({
       correctAnswer: { type: String, required: true }
     }
   ],
+  score: { type: Number },
+  totalQuestions: { type: Number },
+  subject: { type: String, default: 'General' },
   createdAt: { type: Date, default: Date.now }
 });
 

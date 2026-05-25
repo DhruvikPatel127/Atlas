@@ -62,8 +62,30 @@ const getNoteById = async (req, res) => {
   }
 };
 
+const deleteNote = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user._id;
+    const note = await Note.findOne({ _id: req.params.id, userId: userId });
+    
+    if (!note) {
+      return res.status(404).json({ message: 'Note not found or unauthorized' });
+    }
+
+    // Delete actual file from disk if it exists
+    if (note.fileUrl && fs.existsSync(note.fileUrl)) {
+      fs.unlinkSync(note.fileUrl);
+    }
+
+    await Note.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Note deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Error deleting note', error: error.message });
+  }
+};
+
 module.exports = {
   uploadNote,
   getNotes,
   getNoteById,
+  deleteNote,
 };
