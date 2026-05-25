@@ -48,10 +48,10 @@ class PaymentService {
       const plan = await SubscriptionPlan.findOne({ tier: planTier });
       if (!plan) throw new Error('Plan not found');
 
-      const order = await razorpay.orders.create({
+      const order = await rzp.orders.create({
         amount: Math.round(plan.price_inr * 100), // Convert to paise
         currency: 'INR',
-        receipt: `user_${userId}_${Date.now()}`,
+        receipt: `order_${Date.now()}`, // Shortened to stay under 40 chars
         notes: {
           user_id: userId.toString(),
           plan_tier: planTier,
