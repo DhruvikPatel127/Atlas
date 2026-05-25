@@ -20,8 +20,8 @@ const plans = [
     tier: 'pro',
     display_name: 'Pro Tier',
     description: 'Advanced tools for serious students',
-    price_inr: 299,
-    price_usd: 3.99,
+    price_inr: 1, // Set to ₹1 for testing
+    price_usd: 1,
     ai_questions_daily: -1, // Unlimited
     document_limit: -1, // Unlimited
     storage_limit_mb: 5000,
@@ -31,8 +31,8 @@ const plans = [
     tier: 'premium',
     display_name: 'Premium Tier',
     description: 'The ultimate study experience',
-    price_inr: 999,
-    price_usd: 11.99,
+    price_inr: 1, // Set to ₹1 for testing
+    price_usd: 1,
     ai_questions_daily: -1,
     document_limit: -1,
     storage_limit_mb: 50000,
