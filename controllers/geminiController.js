@@ -24,25 +24,39 @@ const generateContent = async (prompt, feature = 'general') => {
   const modelName = MODELS[0];
   try {
     console.log(`Attempting generateContent with ${modelName}...`);
-    const model = genAI.getGenerativeModel({ model: modelName });
+    const model = genAI.getGenerativeModel({ 
+      model: modelName,
+      generationConfig: {
+        maxOutputTokens: 2048,
+        temperature: 0.7,
+        topP: 0.8,
+        topK: 40,
+      }
+    });
+    
     const result = await model.generateContent(prompt);
     const response = await result.response;
+    const text = response.text();
+    
+    if (!text) throw new Error("Empty response from Gemini");
     
     // Track success
     aiRequestCounter.labels(feature, modelName, 'success').inc();
-    // Estimate tokens (roughly 4 chars per token)
-    const tokenCount = Math.ceil((prompt.length + response.text().length) / 4);
+    const tokenCount = Math.ceil((prompt.length + text.length) / 4);
     aiTokensUsed.labels(feature, 'total').inc(tokenCount);
     
-    return response.text();
+    return text;
   } catch (error) {
     aiRequestCounter.labels(feature, modelName, 'error').inc();
     console.error(`Gemini Error (${modelName}):`, error.message);
     
-    if (error.message.includes("404")) {
-      throw new Error(`Gemini API Error: Model ${modelName} not found. Please ensure the "Generative Language API" is enabled and this model is available in your region.`);
+    if (error.message.includes("429")) {
+      throw new Error("AI is currently overloaded. Please wait a few seconds and try again.");
     }
-    throw error;
+    if (error.message.includes("404")) {
+      throw new Error(`Gemini API Error: Model ${modelName} not found.`);
+    }
+    throw new Error("AI generation failed. Please try a shorter prompt or wait a moment.");
   }
 };
 
@@ -54,24 +68,37 @@ const chatWithGemini = async (history, message, feature = 'chat') => {
   const modelName = MODELS[0];
   try {
     console.log(`Attempting chat with ${modelName}...`);
-    const model = genAI.getGenerativeModel({ model: modelName });
-    const chat = model.startChat({ history });
+    const model = genAI.getGenerativeModel({ 
+      model: modelName,
+      generationConfig: {
+        maxOutputTokens: 1024,
+        temperature: 0.9, // More creative for chat
+      }
+    });
+    
+    const chat = model.startChat({ 
+      history: history.slice(-10), // Only send last 10 messages to keep it fast
+    });
+    
     const result = await chat.sendMessage(message);
     const response = await result.response;
+    const text = response.text();
+
+    if (!text) throw new Error("Empty response from Gemini Chat");
     
     aiRequestCounter.labels(feature, modelName, 'success').inc();
-    const tokenCount = Math.ceil((message.length + response.text().length) / 4);
+    const tokenCount = Math.ceil((message.length + text.length) / 4);
     aiTokensUsed.labels(feature, 'total').inc(tokenCount);
     
-    return response.text();
+    return text;
   } catch (error) {
     aiRequestCounter.labels(feature, modelName, 'error').inc();
     console.error(`Gemini Chat Error (${modelName}):`, error.message);
     
-    if (error.message.includes("404")) {
-      throw new Error(`Gemini API Error: Model ${modelName} not found in Chat. Please check your Google Cloud Project settings.`);
+    if (error.message.includes("429")) {
+      throw new Error("Chat is busy. Please wait a moment.");
     }
-    throw error;
+    throw new Error("Chat failed. Try refreshing the chat.");
   }
 };
 
