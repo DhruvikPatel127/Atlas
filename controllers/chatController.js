@@ -21,7 +21,7 @@ const sendMessage = async (req, res) => {
     if (chat) {
       history = chat.messages.map(msg => ({
         role: msg.role,
-        parts: msg.parts,
+        parts: msg.parts.map(p => ({ text: p.text })),
       }));
     } else {
       // If it's the first message and there's a valid note, provide context
