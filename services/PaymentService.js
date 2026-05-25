@@ -13,18 +13,37 @@ if (process.env.STRIPE_SECRET_KEY) {
 }
 
 let razorpay;
-if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
-  razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID,
-    key_secret: process.env.RAZORPAY_KEY_SECRET
-  });
-}
+const initRazorpay = () => {
+  if (razorpay) return razorpay;
+  
+  const keyId = process.env.RAZORPAY_KEY_ID?.trim();
+  const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim();
+
+  if (keyId && keySecret) {
+    razorpay = new Razorpay({
+      key_id: keyId,
+      key_secret: keySecret
+    });
+    console.log('Razorpay initialized successfully');
+    return razorpay;
+  }
+  return null;
+};
+
+// Initial attempt
+initRazorpay();
 
 class PaymentService {
   // ============ CREATE ORDER (INDIA) ============
   async createRazorpayOrder(userId, planTier) {
     try {
-      if (!razorpay) throw new Error('Razorpay not configured');
+      const rzp = initRazorpay();
+      if (!rzp) {
+        const missing = [];
+        if (!process.env.RAZORPAY_KEY_ID) missing.push('RAZORPAY_KEY_ID');
+        if (!process.env.RAZORPAY_KEY_SECRET) missing.push('RAZORPAY_KEY_SECRET');
+        throw new Error(`Razorpay not configured. Missing: ${missing.join(', ')}`);
+      }
 
       const plan = await SubscriptionPlan.findOne({ tier: planTier });
       if (!plan) throw new Error('Plan not found');
@@ -56,7 +75,8 @@ class PaymentService {
   // ============ VERIFY RAZORPAY PAYMENT ============
   async verifyRazorpayPayment(userId, orderId, paymentId, signature) {
     try {
-      if (!razorpay) throw new Error('Razorpay not configured');
+      const rzp = initRazorpay();
+      if (!rzp) throw new Error('Razorpay not configured');
 
       // Verify signature
       const hmac = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET);
