@@ -7,11 +7,6 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   subjects: [{ type: String }], // Custom subjects added by user
   
-  // Profile fields
-  background: { type: String }, // Engineering, Medical, etc.
-  branch: { type: String },     // CS, Mechanical, etc.
-  competitiveExam: { type: String }, // JEE, NEET, etc.
-  
   // Subscription fields
   subscription_tier: { 
     type: String, 
