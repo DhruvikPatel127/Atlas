@@ -4,26 +4,38 @@ const { aiRequestCounter, aiTokensUsed } = require('../config/monitoring');
 
 dotenv.config();
 
-// Initialize genAI only if key is available
-let genAI;
+// Support multiple API keys for rotation
+let genAIInstances = [];
+let currentKeyIndex = 0;
+
 if (process.env.GEMINI_API_KEY) {
-  const apiKey = process.env.GEMINI_API_KEY.trim().replace(/["']/g, '');
-  genAI = new GoogleGenerativeAI(apiKey);
+  // Support comma-separated keys: KEY1,KEY2,KEY3
+  const keys = process.env.GEMINI_API_KEY.split(',').map(k => k.trim().replace(/["']/g, ''));
+  genAIInstances = keys.map(key => new GoogleGenerativeAI(key));
+  console.log(`Initialized AI Rotation with ${genAIInstances.length} API keys.`);
 }
 
-// Only use gemini-3.5-flash as requested by the user for perfect consistency.
-const MODELS = [
-  "gemini-3.5-flash"
-];
-
-const generateContent = async (prompt, feature = 'general') => {
-  if (!genAI) {
+const getNextGenAI = () => {
+  if (genAIInstances.length === 0) {
     throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
   }
-  
+  const instance = genAIInstances[currentKeyIndex];
+  // Rotate index for next time
+  currentKeyIndex = (currentKeyIndex + 1) % genAIInstances.length;
+  return instance;
+};
+
+// Only use gemini-1.5-flash as requested by the user for perfect consistency.
+const MODELS = [
+  "gemini-1.5-flash"
+];
+
+const generateContent = async (prompt, feature = 'general', attempt = 1) => {
+  const genAI = getNextGenAI();
   const modelName = MODELS[0];
+  
   try {
-    console.log(`Attempting generateContent with ${modelName}...`);
+    console.log(`Attempting generateContent (Attempt ${attempt}) with Key #${currentKeyIndex}...`);
     const model = genAI.getGenerativeModel({ 
       model: modelName,
       generationConfig: {
@@ -47,27 +59,27 @@ const generateContent = async (prompt, feature = 'general') => {
     
     return text;
   } catch (error) {
-    aiRequestCounter.labels(feature, modelName, 'error').inc();
-    console.error(`Gemini Error (${modelName}):`, error.message);
+    console.error(`Gemini Error (Key #${currentKeyIndex}):`, error.message);
     
-    if (error.message.includes("429")) {
-      throw new Error("AI is currently overloaded. Please wait a few seconds and try again.");
+    // Auto-retry with NEXT KEY if rate limited or overloaded
+    if ((error.message.includes("429") || error.message.includes("503") || error.message.includes("overloaded")) && attempt < genAIInstances.length + 1) {
+      console.log(`Key #${currentKeyIndex} is busy. Rotating to next key...`);
+      // Small delay before retry
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return generateContent(prompt, feature, attempt + 1);
     }
-    if (error.message.includes("404")) {
-      throw new Error(`Gemini API Error: Model ${modelName} not found.`);
-    }
-    throw new Error("AI generation failed. Please try a shorter prompt or wait a moment.");
+
+    aiRequestCounter.labels(feature, modelName, 'error').inc();
+    throw new Error("AI is currently busy across all keys. Please wait a moment.");
   }
 };
 
-const chatWithGemini = async (history, message, feature = 'chat') => {
-  if (!genAI) {
-    throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
-  }
-  
+const chatWithGemini = async (history, message, feature = 'chat', attempt = 1) => {
+  const genAI = getNextGenAI();
   const modelName = MODELS[0];
+  
   try {
-    console.log(`Attempting chat with ${modelName}...`);
+    console.log(`Attempting chat (Attempt ${attempt}) with Key #${currentKeyIndex}...`);
     const model = genAI.getGenerativeModel({ 
       model: modelName,
       generationConfig: {
@@ -92,24 +104,26 @@ const chatWithGemini = async (history, message, feature = 'chat') => {
     
     return text;
   } catch (error) {
-    aiRequestCounter.labels(feature, modelName, 'error').inc();
-    console.error(`Gemini Chat Error (${modelName}):`, error.message);
+    console.error(`Gemini Chat Error (Key #${currentKeyIndex}):`, error.message);
     
-    if (error.message.includes("429")) {
-      throw new Error("Chat is busy. Please wait a moment.");
+    // Auto-retry with NEXT KEY
+    if ((error.message.includes("429") || error.message.includes("overloaded")) && attempt < genAIInstances.length + 1) {
+      console.log(`Chat Key #${currentKeyIndex} is busy. Rotating...`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return chatWithGemini(history, message, feature, attempt + 1);
     }
-    throw new Error("Chat failed. Try refreshing the chat.");
+
+    aiRequestCounter.labels(feature, modelName, 'error').inc();
+    throw new Error("Chat is temporarily unavailable. Please try again in a few seconds.");
   }
 };
 
-const extractTextFromBuffer = async (buffer, mimeType) => {
-  if (!genAI) {
-    throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
-  }
-  
+const extractTextFromBuffer = async (buffer, mimeType, attempt = 1) => {
+  const genAI = getNextGenAI();
   const modelName = MODELS[0];
+  
   try {
-    console.log(`Attempting extraction with ${modelName}...`);
+    console.log(`Attempting extraction (Attempt ${attempt}) with Key #${currentKeyIndex}...`);
     const model = genAI.getGenerativeModel({ model: modelName });
     const result = await model.generateContent([
       "Extract all the text from this file and return it as a plain text string. If there are tables or diagrams, describe them simply.",
@@ -123,11 +137,13 @@ const extractTextFromBuffer = async (buffer, mimeType) => {
     const response = await result.response;
     return response.text();
   } catch (error) {
-    console.error(`Extraction error (${modelName}):`, error.message);
+    console.error(`Extraction error (Key #${currentKeyIndex}):`, error.message);
     
-    if (error.message.includes("404")) {
-      throw new Error(`Gemini API Error: Model ${modelName} not found in Extraction. Please check your Google Cloud Project settings.`);
+    if ((error.message.includes("429") || error.message.includes("overloaded")) && attempt < genAIInstances.length + 1) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return extractTextFromBuffer(buffer, mimeType, attempt + 1);
     }
+    
     throw error;
   }
 };
