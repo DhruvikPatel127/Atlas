@@ -25,9 +25,9 @@ const getNextGenAI = () => {
   return instance;
 };
 
-// Only use gemini-1.5-flash as requested by the user for perfect consistency.
+// Only use gemini-3.5-flash as requested by the user for perfect consistency.
 const MODELS = [
-  "gemini-1.5-flash"
+  "gemini-3.5-flash"
 ];
 
 const generateContent = async (prompt, feature = 'general', attempt = 1) => {
