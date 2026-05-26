@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
+const { generateRoadmap } = require('./aiController');
 
 const register = async (req, res) => {
   try {
@@ -62,4 +63,19 @@ const addSubject = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getMe, addSubject };
+const getRoadmap = async (req, res) => {
+  try {
+    const { examDate, backlog, hoursPerDay } = req.body;
+    const user = await User.findById(req.user.id);
+    
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const roadmap = await generateRoadmap(user.subjects, examDate, backlog, hoursPerDay);
+    res.json({ roadmap });
+  } catch (err) {
+    console.error('Roadmap Error:', err.message);
+    res.status(500).json({ message: 'Server error while generating roadmap' });
+  }
+};
+
+module.exports = { register, login, getMe, addSubject, getRoadmap };

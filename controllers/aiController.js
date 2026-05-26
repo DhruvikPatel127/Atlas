@@ -163,7 +163,93 @@ const chatWithGemini = async (history, message, feature = 'chat') => {
   }
 };
 
+const extractTextFromBuffer = async (buffer, mimeType) => {
+  if (!genAI) {
+    throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
+  }
+  
+  const modelName = MODELS.gemini;
+  try {
+    console.log(`Attempting extraction with ${modelName}...`);
+    const model = genAI.getGenerativeModel({ model: modelName });
+    const result = await model.generateContent([
+      "Extract all the text from this file and return it as a plain text string. If there are tables or diagrams, describe them simply.",
+      {
+        inlineData: {
+          data: buffer.toString("base64"),
+          mimeType: mimeType,
+        },
+      },
+    ]);
+    const response = await result.response;
+    return response.text();
+  } catch (error) {
+    console.error(`Extraction error (${modelName}):`, error.message);
+    throw error;
+  }
+};
+
+const generateRevisionNotes = async (content) => {
+  const prompt = `Convert the following notes into a concise 2-page revision sheet. 
+  Include:
+  1. Key Formulas (if applicable)
+  2. Core Definitions
+  3. Quick Tricks/Mnemonics for memorization
+  4. Summary in simple language
+  
+  Format it with clear headings and bullet points.
+  
+  Notes: ${content}`;
+  
+  return await generateContent(prompt, 'revision');
+};
+
+const generateExamMode = async (content) => {
+  const prompt = `You are an exam predictor. Based on the following study material, generate the "Night Before Exam" package:
+  1. Top 10 Most Probable Questions
+  2. 5 High-Weightage Concepts to focus on
+  3. A 5-minute rapid revision summary
+  
+  Notes: ${content}`;
+  
+  return await generateContent(prompt, 'exam_mode');
+};
+
+const predictHighlights = async (content) => {
+  const prompt = `Analyze the following notes and identify the "Smart Highlights":
+  1. Top 5 most important lines.
+  2. Concepts with 80%+ probability of appearing in exams.
+  3. Key technical terms that must be memorized.
+  
+  Notes: ${content}`;
+  
+  return await generateContent(prompt, 'highlights');
+};
+
+const generateRoadmap = async (subjects, examDate, backlog, hoursPerDay) => {
+  const prompt = `Generate a Semester Study Roadmap for a student with the following details:
+  Subjects: ${subjects.join(', ')}
+  Exam Date: ${examDate}
+  Backlog: ${backlog}
+  Available Study Hours: ${hoursPerDay} hours/day
+  
+  Please provide a structured daily/weekly plan that includes:
+  1. Priority subjects to tackle first.
+  2. Revision slots.
+  3. Strategy to clear backlogs.
+  4. Motivation tip.
+  
+  Format it with clear headings.`;
+  
+  return await generateContent(prompt, 'roadmap');
+};
+
 module.exports = {
   generateContent,
   chatWithGemini,
+  extractTextFromBuffer,
+  generateRevisionNotes,
+  generateExamMode,
+  predictHighlights,
+  generateRoadmap,
 };

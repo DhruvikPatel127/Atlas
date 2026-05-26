@@ -23,6 +23,16 @@ const userSchema = new mongoose.Schema({
   document_limit: { type: Number, default: 3 }, // Total documents for free tier
   storage_limit_mb: { type: Number, default: 100 },
   
+  // Gamification
+  xp: { type: Number, default: 0 },
+  streak: { type: Number, default: 0 },
+  last_activity_date: { type: Date },
+  level: { type: Number, default: 1 },
+  badges: [{ type: String }],
+  
+  // Weakness detection (stored as topic: count of wrong answers)
+  weak_topics: { type: Map, of: Number, default: {} },
+  
   createdAt: { type: Date, default: Date.now },
 });
 

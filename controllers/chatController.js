@@ -1,11 +1,22 @@
 const Chat = require('../models/Chat');
 const Note = require('../models/Note');
 const User = require('../models/User');
-const { chatWithGemini } = require('./geminiController');
+const { chatWithGemini } = require('./aiController');
 
 const sendMessage = async (req, res) => {
   try {
-    const { noteId, message } = req.body;
+    const { noteId, message, style = 'Medium' } = req.body;
+    
+    // Define style-specific instructions
+    const stylePrompts = {
+      'Easy': 'Explain like I am a beginner. Use very simple language and relatable analogies.',
+      'Medium': 'Explain clearly with moderate technical detail.',
+      'Exam language': 'Explain using formal academic terminology suitable for exam answers.',
+      'Hinglish': 'Explain using a mix of Hindi and English (Hinglish) like a friend talking to another friend.',
+      'Gujarati': 'Explain in Gujarati language, keeping technical terms in English where necessary.',
+    };
+
+    const styleInstruction = stylePrompts[style] || stylePrompts['Medium'];
     
     // Check if noteId is provided and is a valid ObjectId
     const isValidObjectId = noteId && /^[0-9a-fA-F]{24}$/.test(noteId);
@@ -40,7 +51,6 @@ const sendMessage = async (req, res) => {
         }
       } else {
         // Fallback for when no note is provided
-        // Start with user message then model response to satisfy Gemini requirement
         history.push({
           role: 'user',
           parts: [{ text: "Hello Atlas AI." }],
@@ -52,7 +62,9 @@ const sendMessage = async (req, res) => {
       }
     }
 
-    const aiResponse = await chatWithGemini(history, message);
+    // Append style instruction to the message
+    const stylizedMessage = `${styleInstruction}\n\nUser Question: ${message}`;
+    const aiResponse = await chatWithGemini(history, stylizedMessage);
 
     // Increment AI usage counter
     await User.findByIdAndUpdate(userId, { $inc: { ai_questions_today: 1 } });

@@ -1,6 +1,6 @@
 const Note = require('../models/Note');
 const fs = require('fs');
-const { extractTextFromBuffer } = require('./geminiController');
+const { extractTextFromBuffer, generateRevisionNotes, generateExamMode, predictHighlights } = require('./aiController');
 
 const uploadNote = async (req, res) => {
   try {
@@ -83,9 +83,48 @@ const deleteNote = async (req, res) => {
   }
 };
 
+const getRevisionNotes = async (req, res) => {
+  try {
+    const note = await Note.findById(req.params.id);
+    if (!note) return res.status(404).json({ message: 'Note not found' });
+
+    const revisionContent = await generateRevisionNotes(note.content);
+    res.json({ revisionNotes: revisionContent });
+  } catch (error) {
+    res.status(500).json({ message: 'Error generating revision notes', error: error.message });
+  }
+};
+
+const getExamPrep = async (req, res) => {
+  try {
+    const note = await Note.findById(req.params.id);
+    if (!note) return res.status(404).json({ message: 'Note not found' });
+
+    const examPrepContent = await generateExamMode(note.content);
+    res.json({ examPrep: examPrepContent });
+  } catch (error) {
+    res.status(500).json({ message: 'Error generating exam prep', error: error.message });
+  }
+};
+
+const getHighlights = async (req, res) => {
+  try {
+    const note = await Note.findById(req.params.id);
+    if (!note) return res.status(404).json({ message: 'Note not found' });
+
+    const highlights = await predictHighlights(note.content);
+    res.json({ highlights });
+  } catch (error) {
+    res.status(500).json({ message: 'Error predicting highlights', error: error.message });
+  }
+};
+
 module.exports = {
   uploadNote,
   getNotes,
   getNoteById,
   deleteNote,
+  getRevisionNotes,
+  getExamPrep,
+  getHighlights,
 };
