@@ -7,7 +7,6 @@ const noteSchema = new mongoose.Schema({
   fileUrl: { type: String },
   fileType: { type: String },
   subject: { type: String },
-  summary: { type: String },
   createdAt: { type: Date, default: Date.now },
 });
 

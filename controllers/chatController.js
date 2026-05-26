@@ -1,7 +1,7 @@
 const Chat = require('../models/Chat');
 const Note = require('../models/Note');
 const User = require('../models/User');
-const { chatWithGemini } = require('./aiController');
+const { chatWithGemini } = require('./geminiController');
 
 const sendMessage = async (req, res) => {
   try {
