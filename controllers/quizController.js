@@ -1,7 +1,5 @@
-const mongoose = require('mongoose');
 const Quiz = require('../models/Quiz');
 const Note = require('../models/Note');
-const User = require('../models/User');
 const { generateContent } = require('./geminiController');
 
 const generateQuiz = async (req, res) => {
@@ -42,6 +40,7 @@ const generateQuiz = async (req, res) => {
     }
 
     // Increment AI usage counter
+    const User = require('../models/User');
     await User.findByIdAndUpdate(userId, { $inc: { ai_questions_today: 1 } });
 
     const newQuiz = new Quiz({

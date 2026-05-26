@@ -1,6 +1,5 @@
 const Flashcard = require('../models/Flashcard');
 const Note = require('../models/Note');
-const User = require('../models/User');
 const { generateContent } = require('./geminiController');
 
 const generateFlashcards = async (req, res) => {
@@ -40,6 +39,7 @@ const generateFlashcards = async (req, res) => {
     }
 
     // Increment AI usage counter
+    const User = require('../models/User');
     await User.findByIdAndUpdate(userId, { $inc: { ai_questions_today: 1 } });
 
     const newFlashcardSet = new Flashcard({
