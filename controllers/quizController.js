@@ -66,16 +66,27 @@ const submitQuizScore = async (req, res) => {
     const { quizId, score } = req.body;
     const userId = req.user.id || req.user._id;
 
+    console.log(`Submitting score for quiz ${quizId}: ${score}`);
+
+    if (!quizId) {
+      return res.status(400).json({ message: 'Quiz ID is required' });
+    }
+
     const quiz = await Quiz.findOneAndUpdate(
-      { _id: quizId, userId: userId },
-      { score: score },
+      { _id: new mongoose.Types.ObjectId(quizId), userId: new mongoose.Types.ObjectId(userId) },
+      { score: Number(score) },
       { new: true }
     );
 
-    if (!quiz) return res.status(404).json({ message: 'Quiz not found' });
+    if (!quiz) {
+      console.log(`Quiz not found for ID ${quizId} and User ${userId}`);
+      return res.status(404).json({ message: 'Quiz not found' });
+    }
     
+    console.log(`Score saved successfully for quiz ${quizId}`);
     res.json({ success: true, quiz });
   } catch (error) {
+    console.error('Error saving score:', error);
     res.status(500).json({ message: 'Error saving score', error: error.message });
   }
 };
@@ -120,9 +131,14 @@ const getUserStats = async (req, res) => {
       }
     ]);
 
-    // 3. Streak (Simplified logic: count consecutive days with quizzes)
-    const user = await User.findById(userId);
-    const streak = 5; // Placeholder for now, could be calculated from login logs
+    // 3. Streak (Calculate unique days with quizzes)
+    const uniqueDays = await Quiz.distinct('createdAt', { 
+      userId: userObjectId, 
+      score: { $exists: true } 
+    });
+    
+    // Simple streak calculation: count unique days in the last 30 days
+    const streak = new Set(uniqueDays.map(d => new Date(d).toDateString())).size;
 
     res.json({
       totalQuestionsAnswered: totalQuestionsAnswered,
