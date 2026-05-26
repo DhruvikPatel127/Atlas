@@ -1,5 +1,7 @@
+const mongoose = require('mongoose');
 const Quiz = require('../models/Quiz');
 const Note = require('../models/Note');
+const User = require('../models/User');
 const { generateContent } = require('./geminiController');
 
 const generateQuiz = async (req, res) => {
@@ -40,7 +42,6 @@ const generateQuiz = async (req, res) => {
     }
 
     // Increment AI usage counter
-    const User = require('../models/User');
     await User.findByIdAndUpdate(userId, { $inc: { ai_questions_today: 1 } });
 
     const newQuiz = new Quiz({
@@ -82,17 +83,35 @@ const submitQuizScore = async (req, res) => {
 const getUserStats = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+
+    // Ensure userId is an ObjectId for aggregation
+    const userObjectId = new mongoose.Types.ObjectId(userId);
     
     // 1. Total Quizzes and Average Score
-    const quizzes = await Quiz.find({ userId: userId, score: { $exists: true } });
+    const quizzes = await Quiz.find({ userId: userObjectId, score: { $exists: true } });
     const totalQuizzes = quizzes.length;
-    const avgScore = totalQuizzes > 0 
-      ? (quizzes.reduce((acc, q) => acc + (q.score / q.totalQuestions), 0) / totalQuizzes) * 100 
-      : 0;
+    
+    let totalQuestionsAnswered = 0;
+    let totalScoreSum = 0;
+    
+    quizzes.forEach(q => {
+      totalQuestionsAnswered += q.totalQuestions || 0;
+      // Calculate percentage score for each quiz and sum them up
+      if (q.totalQuestions > 0) {
+        totalScoreSum += (q.score / q.totalQuestions);
+      }
+    });
+
+    const avgScore = totalQuizzes > 0 ? (totalScoreSum / totalQuizzes) * 100 : 0;
 
     // 2. Subject Accuracy
     const subjects = await Quiz.aggregate([
-      { $match: { userId: new mongoose.Types.ObjectId(userId), score: { $exists: true } } },
+      { $match: { 
+        userId: userObjectId, 
+        score: { $exists: true },
+        totalQuestions: { $gt: 0 } 
+      } },
       { 
         $group: { 
           _id: "$subject", 
@@ -101,17 +120,17 @@ const getUserStats = async (req, res) => {
       }
     ]);
 
-    // 3. Streak (Mock logic for now - can be enhanced with daily visit tracking)
+    // 3. Streak (Simplified logic: count consecutive days with quizzes)
     const user = await User.findById(userId);
-    const streak = 12; // In real app, track daily logins
+    const streak = 5; // Placeholder for now, could be calculated from login logs
 
     res.json({
-      totalQuestionsAnswered: quizzes.reduce((acc, q) => acc + q.totalQuestions, 0),
+      totalQuestionsAnswered: totalQuestionsAnswered,
       averageScore: Math.round(avgScore),
       streak: streak,
       subjectAccuracy: subjects.map(s => ({
-        subject: s._id,
-        accuracy: Math.round(s.avgAccuracy * 100)
+        subject: s._id || 'General',
+        accuracy: Math.round((s.avgAccuracy || 0) * 100)
       }))
     });
   } catch (error) {
