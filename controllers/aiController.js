@@ -66,7 +66,12 @@ const generateWithOpenRouter = async (prompt, feature) => {
 
 const generateContent = async (prompt, feature = 'general') => {
   if (USE_OPENROUTER && OPENROUTER_API_KEY) {
-    return await generateWithOpenRouter(prompt, feature);
+    try {
+      return await generateWithOpenRouter(prompt, feature);
+    } catch (error) {
+      console.warn("OpenRouter failed, falling back to Gemini:", error.message);
+      // Fall through to Gemini logic
+    }
   }
 
   if (!genAI) {
@@ -126,19 +131,19 @@ const chatWithGemini = async (history, message, feature = 'chat') => {
           messages: formattedHistory,
         },
         {
-        headers: {
-          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-          "HTTP-Referer": process.env.SITE_URL || "http://localhost:3000",
-          "X-Title": "Atlas AI",
-        },
-      }
+          headers: {
+            "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+            "HTTP-Referer": process.env.SITE_URL || "http://localhost:3000",
+            "X-Title": "Atlas AI",
+          },
+        }
       );
 
       const text = response.data.choices[0].message.content;
       return text;
     } catch (error) {
-      console.error('OpenRouter Chat Error:', error.message);
-      throw new Error("Chat failed via OpenRouter.");
+      console.warn("OpenRouter Chat failed, falling back to Gemini:", error.message);
+      // Fall through to Gemini logic
     }
   }
 
