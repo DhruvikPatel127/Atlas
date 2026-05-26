@@ -1,10 +1,10 @@
 const Quiz = require('../models/Quiz');
 const Note = require('../models/Note');
-const { generateContent } = require('./aiController');
+const { generateContent } = require('./geminiController');
 
 const generateQuiz = async (req, res) => {
   try {
-    const { noteId, type = 'mixed' } = req.body;
+    const { noteId } = req.body;
     
     // Validate noteId
     if (!noteId || !/^[0-9a-fA-F]{24}$/.test(noteId)) {
@@ -14,27 +14,15 @@ const generateQuiz = async (req, res) => {
     const note = await Note.findById(noteId);
     if (!note) return res.status(404).json({ message: 'Note not found' });
 
-    let typeInstruction = '';
-    if (type === 'mcq') {
-      typeInstruction = '5 multiple-choice questions';
-    } else if (type === 'tf') {
-      typeInstruction = '5 true/false questions';
-    } else if (type === 'fill') {
-      typeInstruction = '5 fill-in-the-blanks questions';
-    } else {
-      typeInstruction = 'a mix of 5 questions (MCQ, True/False, and Fill-in-the-blanks)';
-    }
-
-    const prompt = `Based on the following notes, generate a quiz with ${typeInstruction}. 
+    const prompt = `Based on the following notes, generate a quiz with 5 multiple-choice questions. 
     Return the response in JSON format like this:
     {
       "title": "Quiz Title",
       "questions": [
         {
           "question": "Question text?",
-          "options": ["Option A", "Option B", "Option C", "Option D"], // Leave empty or null for T/F and Fill-in-the-blanks
-          "correctAnswer": "Option A",
-          "type": "mcq" // "mcq", "tf", or "fill"
+          "options": ["Option A", "Option B", "Option C", "Option D"],
+          "correctAnswer": "Option A"
         }
       ]
     }
@@ -42,7 +30,7 @@ const generateQuiz = async (req, res) => {
 
     const aiResponse = await generateContent(prompt, 'quiz');
     
-    // Clean up the response
+    // Clean up the response (Gemini sometimes adds markdown backticks)
     const cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
     const quizData = JSON.parse(cleanedResponse);
 
@@ -74,71 +62,19 @@ const generateQuiz = async (req, res) => {
 
 const submitQuizScore = async (req, res) => {
   try {
-    const { quizId, score, answers } = req.body; // answers: [{ questionId, userAnswer, isCorrect, topic }]
+    const { quizId, score } = req.body;
     const userId = req.user.id || req.user._id;
 
-    const quiz = await Quiz.findOne({ _id: quizId, userId: userId });
+    const quiz = await Quiz.findOneAndUpdate(
+      { _id: quizId, userId: userId },
+      { score: score },
+      { new: true }
+    );
+
     if (!quiz) return res.status(404).json({ message: 'Quiz not found' });
-
-    // Update quiz with user answers
-    quiz.score = score;
-    if (answers && answers.length > 0) {
-      answers.forEach(ans => {
-        const q = quiz.questions.id(ans.questionId);
-        if (q) {
-          q.userAnswer = ans.userAnswer;
-          q.isCorrect = ans.isCorrect;
-          q.topic = ans.topic || 'General';
-        }
-      });
-    }
-    await quiz.save();
-
-    // Gamification & Weakness Logic
-    const user = await User.findById(userId);
     
-    // 1. XP (10 XP per correct answer)
-    const xpEarned = score * 10;
-    user.xp += xpEarned;
-    user.level = Math.floor(user.xp / 1000) + 1;
-
-    // 2. Streak Logic
-    const today = new Date().setHours(0,0,0,0);
-    const lastActivity = user.last_activity_date ? new Date(user.last_activity_date).setHours(0,0,0,0) : null;
-    
-    if (!lastActivity || today > lastActivity) {
-      if (lastActivity && today === lastActivity + 86400000) {
-        user.streak += 1;
-      } else if (!lastActivity || today > lastActivity + 86400000) {
-        user.streak = 1;
-      }
-      user.last_activity_date = new Date();
-    }
-
-    // 3. Weakness Detector
-    if (answers) {
-      answers.forEach(ans => {
-        if (!ans.isCorrect && ans.topic) {
-          const currentCount = user.weak_topics.get(ans.topic) || 0;
-          user.weak_topics.set(ans.topic, currentCount + 1);
-        }
-      });
-    }
-
-    await user.save();
-    
-    res.json({ 
-      success: true, 
-      quiz, 
-      xpEarned, 
-      newStreak: user.streak, 
-      level: user.level,
-      weakTopics: Array.from(user.weak_topics.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-    });
+    res.json({ success: true, quiz });
   } catch (error) {
-    console.error('Submit score error:', error);
     res.status(500).json({ message: 'Error saving score', error: error.message });
   }
 };
@@ -146,7 +82,6 @@ const submitQuizScore = async (req, res) => {
 const getUserStats = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-    const user = await User.findById(userId);
     
     // 1. Total Quizzes and Average Score
     const quizzes = await Quiz.find({ userId: userId, score: { $exists: true } });
@@ -166,19 +101,14 @@ const getUserStats = async (req, res) => {
       }
     ]);
 
-    // 3. Top Weak Topics
-    const weakTopics = Array.from(user.weak_topics.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([topic, count]) => ({ topic, mistakes: count }));
+    // 3. Streak (Mock logic for now - can be enhanced with daily visit tracking)
+    const user = await User.findById(userId);
+    const streak = 12; // In real app, track daily logins
 
     res.json({
       totalQuestionsAnswered: quizzes.reduce((acc, q) => acc + q.totalQuestions, 0),
       averageScore: Math.round(avgScore),
-      streak: user.streak,
-      xp: user.xp,
-      level: user.level,
-      weakTopics: weakTopics,
+      streak: streak,
       subjectAccuracy: subjects.map(s => ({
         subject: s._id,
         accuracy: Math.round(s.avgAccuracy * 100)

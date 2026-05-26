@@ -1,6 +1,6 @@
 const Flashcard = require('../models/Flashcard');
 const Note = require('../models/Note');
-const { generateContent } = require('./aiController');
+const { generateContent } = require('./geminiController');
 
 const generateFlashcards = async (req, res) => {
   try {

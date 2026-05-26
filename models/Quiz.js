@@ -7,12 +7,8 @@ const quizSchema = new mongoose.Schema({
   questions: [
     {
       question: { type: String, required: true },
-      options: [{ type: String }],
-      correctAnswer: { type: String, required: true },
-      type: { type: String, enum: ['mcq', 'tf', 'fill'], default: 'mcq' },
-      userAnswer: { type: String },
-      isCorrect: { type: Boolean },
-      topic: { type: String }
+      options: [{ type: String, required: true }],
+      correctAnswer: { type: String, required: true }
     }
   ],
   score: { type: Number },
