@@ -1,19 +1,30 @@
+const dotenv = require('dotenv');
+dotenv.config();
+
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const axios = require('axios');
-const dotenv = require('dotenv');
 const { aiRequestCounter, aiTokensUsed } = require('../config/monitoring');
 
-dotenv.config();
+// Helper to clean API keys from potential quotes or spaces
+const cleanKey = (key) => key ? key.trim().replace(/["']/g, '') : null;
 
 // Initialize genAI only if key is available
 let genAI;
-if (process.env.GEMINI_API_KEY) {
-  const apiKey = process.env.GEMINI_API_KEY.trim().replace(/["']/g, '');
-  genAI = new GoogleGenerativeAI(apiKey);
+const GEMINI_API_KEY = cleanKey(process.env.GEMINI_API_KEY);
+if (GEMINI_API_KEY) {
+  genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 }
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_API_KEY = cleanKey(process.env.OPENROUTER_API_KEY);
 const USE_OPENROUTER = process.env.USE_OPENROUTER === 'true';
+
+if (USE_OPENROUTER) {
+  if (!OPENROUTER_API_KEY) {
+    console.warn("⚠️ USE_OPENROUTER is true but OPENROUTER_API_KEY is missing!");
+  } else {
+    console.log(`✅ OpenRouter initialized with key: ${OPENROUTER_API_KEY.substring(0, 8)}...${OPENROUTER_API_KEY.slice(-4)}`);
+  }
+}
 
 // Only use gemini-1.5-flash for Gemini, or appropriate model for OpenRouter
 const MODELS = {
@@ -115,10 +126,12 @@ const chatWithGemini = async (history, message, feature = 'chat') => {
           messages: formattedHistory,
         },
         {
-          headers: {
-            "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-          },
-        }
+        headers: {
+          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+          "HTTP-Referer": process.env.SITE_URL || "http://localhost:3000",
+          "X-Title": "Atlas AI",
+        },
+      }
       );
 
       const text = response.data.choices[0].message.content;
