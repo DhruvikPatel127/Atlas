@@ -9,5 +9,6 @@ router.post('/upload', auth, checkDocumentLimit, upload.single('file'), noteCont
 router.get('/', auth, noteController.getNotes);
 router.get('/:id', auth, noteController.getNoteById);
 router.delete('/:id', auth, noteController.deleteNote);
+router.post('/generate-all', auth, noteController.generateAllFeatures);
 
 module.exports = router;

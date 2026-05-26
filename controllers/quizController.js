@@ -1,6 +1,6 @@
 const Quiz = require('../models/Quiz');
 const Note = require('../models/Note');
-const { generateContent } = require('./geminiController');
+const { generateContent } = require('./aiController');
 
 const generateQuiz = async (req, res) => {
   try {

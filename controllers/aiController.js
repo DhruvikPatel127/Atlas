@@ -1,4 +1,5 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const axios = require('axios');
 const dotenv = require('dotenv');
 const { aiRequestCounter, aiTokensUsed } = require('../config/monitoring');
 
@@ -11,17 +12,57 @@ if (process.env.GEMINI_API_KEY) {
   genAI = new GoogleGenerativeAI(apiKey);
 }
 
-// Only use gemini-3.5-flash as requested by the user for perfect consistency.
-const MODELS = [
-  "gemini-3.5-flash"
-];
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const USE_OPENROUTER = process.env.USE_OPENROUTER === 'true';
+
+// Only use gemini-1.5-flash for Gemini, or appropriate model for OpenRouter
+const MODELS = {
+  gemini: "gemini-1.5-flash",
+  openrouter: process.env.OPENROUTER_MODEL || "google/gemini-flash-1.5"
+};
+
+const generateWithOpenRouter = async (prompt, feature) => {
+  try {
+    const response = await axios.post(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        model: MODELS.openrouter,
+        messages: [{ role: "user", content: prompt }],
+      },
+      {
+        headers: {
+          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+          "HTTP-Referer": process.env.SITE_URL || "http://localhost:3000",
+          "X-Title": "Atlas AI",
+        },
+      }
+    );
+
+    const text = response.data.choices[0].message.content;
+    
+    // Track success
+    aiRequestCounter.labels(feature, MODELS.openrouter, 'success').inc();
+    const tokenCount = Math.ceil((prompt.length + text.length) / 4);
+    aiTokensUsed.labels(feature, 'total').inc(tokenCount);
+
+    return text;
+  } catch (error) {
+    aiRequestCounter.labels(feature, MODELS.openrouter, 'error').inc();
+    console.error(`OpenRouter Error:`, error.response?.data || error.message);
+    throw new Error("AI generation via OpenRouter failed.");
+  }
+};
 
 const generateContent = async (prompt, feature = 'general') => {
+  if (USE_OPENROUTER && OPENROUTER_API_KEY) {
+    return await generateWithOpenRouter(prompt, feature);
+  }
+
   if (!genAI) {
     throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
   }
   
-  const modelName = MODELS[0];
+  const modelName = MODELS.gemini;
   try {
     console.log(`Attempting generateContent with ${modelName}...`);
     const model = genAI.getGenerativeModel({ 
@@ -53,31 +94,58 @@ const generateContent = async (prompt, feature = 'general') => {
     if (error.message.includes("429")) {
       throw new Error("AI is currently overloaded. Please wait a few seconds and try again.");
     }
-    if (error.message.includes("404")) {
-      throw new Error(`Gemini API Error: Model ${modelName} not found.`);
-    }
     throw new Error("AI generation failed. Please try a shorter prompt or wait a moment.");
   }
 };
 
 const chatWithGemini = async (history, message, feature = 'chat') => {
+  if (USE_OPENROUTER && OPENROUTER_API_KEY) {
+    // OpenRouter chat implementation
+    try {
+      const formattedHistory = history.map(h => ({
+        role: h.role === 'model' ? 'assistant' : h.role,
+        content: h.parts[0].text
+      }));
+      formattedHistory.push({ role: 'user', content: message });
+
+      const response = await axios.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        {
+          model: MODELS.openrouter,
+          messages: formattedHistory,
+        },
+        {
+          headers: {
+            "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+          },
+        }
+      );
+
+      const text = response.data.choices[0].message.content;
+      return text;
+    } catch (error) {
+      console.error('OpenRouter Chat Error:', error.message);
+      throw new Error("Chat failed via OpenRouter.");
+    }
+  }
+
   if (!genAI) {
     throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
   }
   
-  const modelName = MODELS[0];
+  const modelName = MODELS.gemini;
   try {
     console.log(`Attempting chat with ${modelName}...`);
     const model = genAI.getGenerativeModel({ 
       model: modelName,
       generationConfig: {
         maxOutputTokens: 1024,
-        temperature: 0.9, // More creative for chat
+        temperature: 0.9,
       }
     });
     
     const chat = model.startChat({ 
-      history: history.slice(-10), // Only send last 10 messages to keep it fast
+      history: history.slice(-10),
     });
     
     const result = await chat.sendMessage(message);
@@ -87,53 +155,15 @@ const chatWithGemini = async (history, message, feature = 'chat') => {
     if (!text) throw new Error("Empty response from Gemini Chat");
     
     aiRequestCounter.labels(feature, modelName, 'success').inc();
-    const tokenCount = Math.ceil((message.length + text.length) / 4);
-    aiTokensUsed.labels(feature, 'total').inc(tokenCount);
-    
     return text;
   } catch (error) {
     aiRequestCounter.labels(feature, modelName, 'error').inc();
     console.error(`Gemini Chat Error (${modelName}):`, error.message);
-    
-    if (error.message.includes("429")) {
-      throw new Error("Chat is busy. Please wait a moment.");
-    }
     throw new Error("Chat failed. Try refreshing the chat.");
-  }
-};
-
-const extractTextFromBuffer = async (buffer, mimeType) => {
-  if (!genAI) {
-    throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
-  }
-  
-  const modelName = MODELS[0];
-  try {
-    console.log(`Attempting extraction with ${modelName}...`);
-    const model = genAI.getGenerativeModel({ model: modelName });
-    const result = await model.generateContent([
-      "Extract all the text from this file and return it as a plain text string. If there are tables or diagrams, describe them simply.",
-      {
-        inlineData: {
-          data: buffer.toString("base64"),
-          mimeType: mimeType,
-        },
-      },
-    ]);
-    const response = await result.response;
-    return response.text();
-  } catch (error) {
-    console.error(`Extraction error (${modelName}):`, error.message);
-    
-    if (error.message.includes("404")) {
-      throw new Error(`Gemini API Error: Model ${modelName} not found in Extraction. Please check your Google Cloud Project settings.`);
-    }
-    throw error;
   }
 };
 
 module.exports = {
   generateContent,
   chatWithGemini,
-  extractTextFromBuffer,
 };
