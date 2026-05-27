@@ -29,7 +29,7 @@ const uploadNote = async (req, res) => {
       userId: userId,
       title: req.body.title || req.file.originalname,
       content: extractedText,
-      fileUrl: filePath,
+      fileUrl: req.file.path.replace(/\\/g, '/'), // Ensure forward slashes for URL
       fileType: req.file.mimetype,
       subject: req.body.subject || 'General',
     });
