@@ -112,24 +112,20 @@ const getUserStats = async (req, res) => {
     console.log('User ID from request:', userId);
 
     // 1. Fetch ALL quizzes for this user. 
-    // We'll search by the userId as it's stored in the DB
+    // IMPORTANT: Some quizzes might have userId stored as a string, others as an ObjectId.
+    // We'll search for both to be absolutely sure.
     const quizzes = await Quiz.find({ 
       $or: [
         { userId: userId },
-        { userId: new mongoose.Types.ObjectId(userId) }
+        { userId: userId.toString() }
       ]
     }).sort({ createdAt: -1 });
     
-    console.log(`DEBUG: Found ${quizzes.length} total quizzes for user ${userId}`);
-    
-    // Detailed log of all quizzes to see what's happening
-    quizzes.forEach((q, i) => {
-      console.log(`DEBUG: Quiz ${i}: ID=${q._id}, Score=${q.score}, Total=${q.totalQuestions}, Subject=${q.subject}, CreatedAt=${q.createdAt}`);
-    });
+    console.log(`Found ${quizzes.length} total quizzes in database for this user.`);
 
     // 2. Filter quizzes that have been completed (have a score)
     const completedQuizzes = quizzes.filter(q => q.score !== null && q.score !== undefined);
-    console.log(`DEBUG: Found ${completedQuizzes.length} completed quizzes with scores.`);
+    console.log(`Found ${completedQuizzes.length} completed quizzes with scores.`);
 
     let totalQuestionsAnswered = 0;
     let totalCorrectAnswers = 0;
@@ -197,10 +193,16 @@ const getUserStats = async (req, res) => {
       totalQuestionsAnswered: completedQuizzes.length, // Display "Solved" as number of quizzes
       averageScore: averageScore,
       streak: streak,
-      subjectAccuracy: subjectAccuracy
+      subjectAccuracy: subjectAccuracy,
+      debugInfo: {
+        totalQuizzesInDb: quizzes.length,
+        scoredQuizzes: completedQuizzes.length,
+        userIdRequested: userId,
+        dbUserIds: quizzes.slice(0, 5).map(q => q.userId) // Look at first few IDs in DB
+      }
     };
 
-    console.log('Final Stats:', finalStats);
+    console.log('Final Stats response:', JSON.stringify(finalStats, null, 2));
     res.json(finalStats);
 
   } catch (error) {
