@@ -36,44 +36,33 @@ const generateQuiz = async (req, res) => {
 
     const aiResponse = await generateContent(prompt, 'quiz');
     
-    // Extremely robust JSON extraction
-    let cleanedResponse = aiResponse.trim();
-    
-    // 1. Remove markdown code blocks if present
-    cleanedResponse = cleanedResponse.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
-    
-    // 2. Find the actual JSON object (look for the one containing "title")
-    const titleIdx = cleanedResponse.indexOf('"title"');
-    let startIdx = -1;
-    if (titleIdx !== -1) {
-      // Find the '{' that opens the object containing "title"
-      startIdx = cleanedResponse.lastIndexOf('{', titleIdx);
-    } else {
-      startIdx = cleanedResponse.indexOf('{');
-    }
-
-    const endIdx = cleanedResponse.lastIndexOf('}');
-    
-    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-      cleanedResponse = cleanedResponse.substring(startIdx, endIdx + 1);
-    }
-
     let quizData;
     try {
-      quizData = JSON.parse(cleanedResponse);
-    } catch (parseError) {
-      console.error('JSON Parse Error. Cleaned Response snippet:', cleanedResponse.substring(0, 100));
+      // With responseMimeType: "application/json", the response should be raw JSON
+      // We still trim and remove potential backticks just in case
+      let cleaned = aiResponse.trim();
+      if (cleaned.startsWith('```')) {
+        cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+      }
       
-      // Fallback: Try to clean common JSON errors (trailing commas, etc)
+      quizData = JSON.parse(cleaned);
+    } catch (parseError) {
+      console.error('JSON Parse Error in generateQuiz:', parseError.message);
+      console.log('Raw AI Response:', aiResponse);
+      
+      // Final attempt to find anything that looks like JSON
       try {
-        const fixedJson = cleanedResponse
-          .replace(/,\s*([\]}])/g, '$1') // trailing commas
-          .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":'); // unquoted keys
-        quizData = JSON.parse(fixedJson);
+        const start = aiResponse.indexOf('{');
+        const end = aiResponse.lastIndexOf('}');
+        if (start !== -1 && end !== -1) {
+          quizData = JSON.parse(aiResponse.substring(start, end + 1));
+        } else {
+          throw parseError;
+        }
       } catch (e) {
         return res.status(500).json({ 
-          message: 'The AI generated an invalid response format. Please try again.',
-          debug: cleanedResponse.substring(0, 50) 
+          message: 'The AI failed to generate a valid quiz format. Please try again.',
+          error: parseError.message 
         });
       }
     }

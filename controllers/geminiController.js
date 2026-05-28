@@ -34,15 +34,19 @@ const generateContent = async (prompt, feature = 'general', attempt = 1) => {
   const genAI = getNextGenAI();
   const modelName = MODELS[0];
   
+  // Use JSON mode for specific features to prevent parsing errors
+  const isJsonMode = feature === 'quiz' || feature === 'flashcards';
+
   try {
     console.log(`Attempting generateContent (Attempt ${attempt}) with Key #${currentKeyIndex}...`);
     const model = genAI.getGenerativeModel({ 
       model: modelName,
       generationConfig: {
         maxOutputTokens: 2048,
-        temperature: 0.7,
+        temperature: isJsonMode ? 0.1 : 0.7, // Lower temperature for more stable JSON
         topP: 0.8,
         topK: 40,
+        responseMimeType: isJsonMode ? "application/json" : "text/plain"
       }
     });
     
