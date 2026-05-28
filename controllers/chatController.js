@@ -15,7 +15,10 @@ const sendMessage = async (req, res) => {
       return res.status(401).json({ message: 'User ID not found in token. Please log in again.' });
     }
 
-    let chat = isValidObjectId ? await Chat.findOne({ noteId, userId: userId }) : null;
+    // If noteId is provided, check if it's a valid ObjectId. If not, treat as general chat (null)
+    const normalizedNoteId = (noteId && /^[0-9a-fA-F]{24}$/.test(noteId)) ? noteId : null;
+
+    let chat = await Chat.findOne({ noteId: normalizedNoteId, userId: userId });
 
     let history = [];
     if (chat) {
@@ -25,8 +28,8 @@ const sendMessage = async (req, res) => {
       }));
     } else {
       // If it's the first message and there's a valid note, provide context
-      if (isValidObjectId) {
-        const note = await Note.findById(noteId);
+      if (normalizedNoteId) {
+        const note = await Note.findById(normalizedNoteId);
         if (note) {
           // Gemini requires the first message to be from 'user'
           history.push({
@@ -60,7 +63,7 @@ const sendMessage = async (req, res) => {
     if (!chat) {
       chat = new Chat({
         userId: userId,
-        noteId: isValidObjectId ? noteId : null,
+        noteId: normalizedNoteId,
         messages: [
           ...history,
           { role: 'user', parts: [{ text: message }] },
@@ -83,7 +86,8 @@ const sendMessage = async (req, res) => {
 const getChatByNoteId = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-    const chat = await Chat.findOne({ noteId: req.params.noteId, userId: userId });
+    const noteId = (req.params.noteId && /^[0-9a-fA-F]{24}$/.test(req.params.noteId)) ? req.params.noteId : null;
+    const chat = await Chat.findOne({ noteId, userId: userId });
     if (!chat) return res.json({ messages: [] });
     res.json(chat);
   } catch (error) {
