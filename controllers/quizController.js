@@ -99,146 +99,105 @@ const getUserStats = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     if (!userId) {
-      console.log('Stats Error: No User ID found in request');
       return res.status(401).json({ message: 'Unauthorized' });
     }
 
     console.log('--- STATS CALCULATION START ---');
-    console.log('Raw User ID from request:', userId);
+    console.log('User ID:', userId);
 
-    // Mongoose will automatically handle the conversion if we use the model's find method
-    // but for aggregation and safety, we'll try to ensure we have an ObjectId if possible
-    let userQueryId = userId;
-    try {
-      if (typeof userId === 'string' && userId.length === 24) {
-        userQueryId = new mongoose.Types.ObjectId(userId);
-      }
-    } catch (e) {
-      console.log('Note: userId is not a valid ObjectId string, using as is');
-    }
+    // Fetch ALL quizzes for this user. 
+    // We search by the userId as it's stored in the DB (usually as an ObjectId)
+    // Mongoose handles string to ObjectId casting in .find()
+    const allUserQuizzes = await Quiz.find({ userId: userId }).sort({ createdAt: -1 });
+    console.log(`Found ${allUserQuizzes.length} quizzes for user.`);
 
-    // 1. Fetch ALL quizzes for this user
-    // We search by the userId as it's stored in the DB
-    const allUserQuizzes = await Quiz.find({ userId: userId });
-    console.log(`Debug: Total quizzes found for user ${userId}: ${allUserQuizzes.length}`);
-    
-    // 2. Fetch quizzes with scores
-    const quizzesWithScores = allUserQuizzes.filter(q => q.score !== null && q.score !== undefined);
-    console.log(`Debug: Quizzes with valid scores: ${quizzesWithScores.length}`);
+    // Filter for quizzes that have a score
+    const scoredQuizzes = allUserQuizzes.filter(q => q.score !== null && q.score !== undefined);
+    console.log(`Found ${scoredQuizzes.length} quizzes with scores.`);
 
     let totalQuestionsAnswered = 0;
-    let totalScoreSum = 0;
-    
-    quizzesWithScores.forEach((q, index) => {
-      const qScore = typeof q.score === 'number' ? q.score : 0;
-      let qTotal = q.totalQuestions;
-      
-      if (!qTotal) {
-        qTotal = (q.questions && q.questions.length > 0) ? q.questions.length : 5;
+    let totalCorrectAnswers = 0;
+    const subjectStats = {};
+
+    scoredQuizzes.forEach(quiz => {
+      const score = Number(quiz.score) || 0;
+      // Get total questions from quiz record or count the questions array
+      let total = Number(quiz.totalQuestions);
+      if (!total || total === 0) {
+        total = (quiz.questions && quiz.questions.length > 0) ? quiz.questions.length : 5;
       }
-      
-      console.log(`Quiz ${index + 1}: ID=${q._id}, Score=${qScore}, Total=${qTotal}, Subject=${q.subject}`);
-      
-      totalQuestionsAnswered += qTotal;
-      if (qTotal > 0) {
-        totalScoreSum += (qScore / qTotal);
+
+      totalQuestionsAnswered += total;
+      totalCorrectAnswers += score;
+
+      // Track by subject
+      const subject = quiz.subject || 'General';
+      if (!subjectStats[subject]) {
+        subjectStats[subject] = { score: 0, total: 0 };
       }
+      subjectStats[subject].score += score;
+      subjectStats[subject].total += total;
     });
 
-    const avgScore = quizzesWithScores.length > 0 ? (totalScoreSum / quizzesWithScores.length) * 100 : 0;
+    // Calculate Average Accuracy
+    const averageScore = totalQuestionsAnswered > 0 
+      ? Math.round((totalCorrectAnswers / totalQuestionsAnswered) * 100) 
+      : 0;
 
-    // 3. Subject Accuracy (Aggregation)
-    // For aggregation, we MUST use the ObjectId if the field is an ObjectId in the schema
-    const subjects = await Quiz.aggregate([
-      { 
-        $match: { 
-          userId: userQueryId, 
-          score: { $ne: null }
-        } 
-      },
-      { 
-        $group: { 
-          _id: "$subject", 
-          totalScore: { $sum: "$score" },
-          totalPossible: { 
-            $sum: { 
-              $cond: [
-                { $gt: [{ $ifNull: ["$totalQuestions", 0] }, 0] }, 
-                "$totalQuestions", 
-                { $cond: [{ $isArray: "$questions" }, { $size: "$questions" }, 5] }
-              ] 
-            } 
-          }
-        } 
-      },
-      {
-        $project: {
-          _id: 1,
-          accuracy: {
-            $cond: [
-              { $gt: ["$totalPossible", 0] },
-              { $divide: ["$totalScore", "$totalPossible"] },
-              0
-            ]
-          }
-        }
-      }
-    ]);
-
-    // 4. Streak calculation
-    const uniqueDays = [...new Set(
-      quizzesWithScores
+    // Calculate Streak (Consecutive Days)
+    const uniqueDates = [...new Set(
+      scoredQuizzes
         .filter(q => q.createdAt)
         .map(q => new Date(q.createdAt).toDateString())
-    )].sort((a, b) => new Date(b) - new Date(a));
+    )]; // Already sorted by createdAt: -1 from query
 
     let currentStreak = 0;
-    if (uniqueDays.length > 0) {
-      currentStreak = 1;
-      let today = new Date();
+    if (uniqueDates.length > 0) {
+      const today = new Date();
       today.setHours(0, 0, 0, 0);
       
-      let lastQuizDate = new Date(uniqueDays[0]);
+      const lastQuizDate = new Date(uniqueDates[0]);
       lastQuizDate.setHours(0, 0, 0, 0);
 
       const diffTime = Math.abs(today - lastQuizDate);
       const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
+      // If last quiz was today (0) or yesterday (1), streak is alive
       if (diffDays <= 1) {
-        // Recent activity today or yesterday, count backwards
-        for (let i = 0; i < uniqueDays.length - 1; i++) {
-          let d1 = new Date(uniqueDays[i]); d1.setHours(0,0,0,0);
-          let d2 = new Date(uniqueDays[i+1]); d2.setHours(0,0,0,0);
-          const dayGap = Math.floor(Math.abs(d1 - d2) / (1000 * 60 * 60 * 24));
-          if (dayGap === 1) currentStreak++;
-          else break;
+        currentStreak = 1;
+        for (let i = 0; i < uniqueDates.length - 1; i++) {
+          const d1 = new Date(uniqueDates[i]); d1.setHours(0,0,0,0);
+          const d2 = new Date(uniqueDates[i+1]); d2.setHours(0,0,0,0);
+          const gap = Math.floor(Math.abs(d1 - d2) / (1000 * 60 * 60 * 24));
+          if (gap === 1) {
+            currentStreak++;
+          } else {
+            break;
+          }
         }
-      } else {
-        currentStreak = 0; // Streak broken
       }
     }
 
+    // Format Subject Accuracy for Frontend
+    const subjectAccuracy = Object.keys(subjectStats).map(subject => ({
+      subject: subject,
+      accuracy: Math.round((subjectStats[subject].score / subjectStats[subject].total) * 100)
+    }));
+
     const stats = {
-      totalQuestionsAnswered: totalQuestionsAnswered,
-      averageScore: Math.round(avgScore),
+      totalQuestionsAnswered: scoredQuizzes.length, // Show number of quizzes solved as requested by "Solved" label
+      averageScore: averageScore,
       streak: currentStreak,
-      subjectAccuracy: subjects.map(s => ({
-        subject: s._id || 'General',
-        accuracy: Math.round((s.accuracy || 0) * 100)
-      })),
-      debug: {
-        quizzesFound: allUserQuizzes.length,
-        scoredQuizzes: quizzesWithScores.length
-      }
+      subjectAccuracy: subjectAccuracy
     };
 
-    console.log('Final Calculated Stats:', JSON.stringify(stats, null, 2));
+    console.log('Calculated Stats:', stats);
     console.log('--- STATS CALCULATION END ---');
-    
+
     res.json(stats);
   } catch (error) {
-    console.error('CRITICAL Stats error:', error);
-    res.status(500).json({ message: 'Error fetching stats', error: error.message });
+    console.error('Stats calculation error:', error);
+    res.status(500).json({ message: 'Error calculating stats', error: error.message });
   }
 };
 
