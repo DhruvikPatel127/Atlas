@@ -104,19 +104,23 @@ const getUserStats = async (req, res) => {
     }
 
     console.log('--- STATS CALCULATION START ---');
-    console.log('Target User ID:', userId);
+    console.log('Raw User ID from request:', userId);
 
-    // CRITICAL: Explicitly cast to ObjectId for all queries
-    const userObjectId = new mongoose.Types.ObjectId(userId);
-    
-    // 1. Fetch ALL quizzes for this user to debug - searching by both ObjectId and string ID for robustness
-    const allUserQuizzes = await Quiz.find({ 
-      $or: [
-        { userId: userObjectId },
-        { userId: userId.toString() }
-      ]
-    });
-    console.log(`Debug: Total quizzes found for user in DB: ${allUserQuizzes.length}`);
+    // Mongoose will automatically handle the conversion if we use the model's find method
+    // but for aggregation and safety, we'll try to ensure we have an ObjectId if possible
+    let userQueryId = userId;
+    try {
+      if (typeof userId === 'string' && userId.length === 24) {
+        userQueryId = new mongoose.Types.ObjectId(userId);
+      }
+    } catch (e) {
+      console.log('Note: userId is not a valid ObjectId string, using as is');
+    }
+
+    // 1. Fetch ALL quizzes for this user
+    // We search by the userId as it's stored in the DB
+    const allUserQuizzes = await Quiz.find({ userId: userId });
+    console.log(`Debug: Total quizzes found for user ${userId}: ${allUserQuizzes.length}`);
     
     // 2. Fetch quizzes with scores
     const quizzesWithScores = allUserQuizzes.filter(q => q.score !== null && q.score !== undefined);
@@ -126,13 +130,11 @@ const getUserStats = async (req, res) => {
     let totalScoreSum = 0;
     
     quizzesWithScores.forEach((q, index) => {
-      // Robustly get score and total questions
       const qScore = typeof q.score === 'number' ? q.score : 0;
-      
-      // Try to get total questions from various possible fields
       let qTotal = q.totalQuestions;
-      if (qTotal === undefined || qTotal === null || qTotal === 0) {
-        qTotal = (q.questions && q.questions.length > 0) ? q.questions.length : 5; // Fallback to 5 if unknown
+      
+      if (!qTotal) {
+        qTotal = (q.questions && q.questions.length > 0) ? q.questions.length : 5;
       }
       
       console.log(`Quiz ${index + 1}: ID=${q._id}, Score=${qScore}, Total=${qTotal}, Subject=${q.subject}`);
@@ -145,23 +147,21 @@ const getUserStats = async (req, res) => {
 
     const avgScore = quizzesWithScores.length > 0 ? (totalScoreSum / quizzesWithScores.length) * 100 : 0;
 
-    // 3. Subject Accuracy (Aggregation) - Improved with fallbacks and flexible userId
+    // 3. Subject Accuracy (Aggregation)
+    // For aggregation, we MUST use the ObjectId if the field is an ObjectId in the schema
     const subjects = await Quiz.aggregate([
       { 
         $match: { 
-          $or: [
-            { userId: userObjectId },
-            { userId: userId.toString() }
-          ],
+          userId: userQueryId, 
           score: { $ne: null }
         } 
       },
       { 
         $group: { 
           _id: "$subject", 
-          avgScore: { $avg: "$score" },
-          avgTotal: { 
-            $avg: { 
+          totalScore: { $sum: "$score" },
+          totalPossible: { 
+            $sum: { 
               $cond: [
                 { $gt: [{ $ifNull: ["$totalQuestions", 0] }, 0] }, 
                 "$totalQuestions", 
@@ -174,10 +174,10 @@ const getUserStats = async (req, res) => {
       {
         $project: {
           _id: 1,
-          avgAccuracy: {
+          accuracy: {
             $cond: [
-              { $gt: ["$avgTotal", 0] },
-              { $divide: ["$avgScore", "$avgTotal"] },
+              { $gt: ["$totalPossible", 0] },
+              { $divide: ["$totalScore", "$totalPossible"] },
               0
             ]
           }
@@ -185,45 +185,36 @@ const getUserStats = async (req, res) => {
       }
     ]);
 
-    // 4. Streak (Unique Days)
+    // 4. Streak calculation
     const uniqueDays = [...new Set(
       quizzesWithScores
         .filter(q => q.createdAt)
         .map(q => new Date(q.createdAt).toDateString())
     )].sort((a, b) => new Date(b) - new Date(a));
 
-    // Calculate actual consecutive day streak
     let currentStreak = 0;
     if (uniqueDays.length > 0) {
       currentStreak = 1;
       let today = new Date();
       today.setHours(0, 0, 0, 0);
       
-      let lastDate = new Date(uniqueDays[0]);
-      lastDate.setHours(0, 0, 0, 0);
+      let lastQuizDate = new Date(uniqueDays[0]);
+      lastQuizDate.setHours(0, 0, 0, 0);
 
-      // Check if the most recent quiz was today or yesterday
-      const diffTime = Math.abs(today - lastDate);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const diffTime = Math.abs(today - lastQuizDate);
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
       if (diffDays <= 1) {
-        // Most recent was today or yesterday, count backwards
+        // Recent activity today or yesterday, count backwards
         for (let i = 0; i < uniqueDays.length - 1; i++) {
-          let date1 = new Date(uniqueDays[i]);
-          date1.setHours(0, 0, 0, 0);
-          let date2 = new Date(uniqueDays[i+1]);
-          date2.setHours(0, 0, 0, 0);
-          
-          const dayDiff = Math.ceil(Math.abs(date1 - date2) / (1000 * 60 * 60 * 24));
-          if (dayDiff === 1) {
-            currentStreak++;
-          } else {
-            break;
-          }
+          let d1 = new Date(uniqueDays[i]); d1.setHours(0,0,0,0);
+          let d2 = new Date(uniqueDays[i+1]); d2.setHours(0,0,0,0);
+          const dayGap = Math.floor(Math.abs(d1 - d2) / (1000 * 60 * 60 * 24));
+          if (dayGap === 1) currentStreak++;
+          else break;
         }
       } else {
-        // Most recent quiz was more than 1 day ago, streak is broken
-        currentStreak = 0;
+        currentStreak = 0; // Streak broken
       }
     }
 
@@ -233,11 +224,15 @@ const getUserStats = async (req, res) => {
       streak: currentStreak,
       subjectAccuracy: subjects.map(s => ({
         subject: s._id || 'General',
-        accuracy: Math.round((s.avgAccuracy || 0) * 100)
-      }))
+        accuracy: Math.round((s.accuracy || 0) * 100)
+      })),
+      debug: {
+        quizzesFound: allUserQuizzes.length,
+        scoredQuizzes: quizzesWithScores.length
+      }
     };
 
-    console.log('Final Calculated Stats:', stats);
+    console.log('Final Calculated Stats:', JSON.stringify(stats, null, 2));
     console.log('--- STATS CALCULATION END ---');
     
     res.json(stats);
