@@ -32,9 +32,27 @@ const generateQuiz = async (req, res) => {
 
     const aiResponse = await generateContent(prompt, 'quiz');
     
-    // Clean up the response (Gemini sometimes adds markdown backticks)
-    const cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
-    const quizData = JSON.parse(cleanedResponse);
+    // Clean up the response (Gemini sometimes adds markdown backticks or extra text)
+    let cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
+    
+    // Attempt to find the first '{' and last '}' to handle cases where AI adds preamble/postamble
+    const firstBrace = cleanedResponse.indexOf('{');
+    const lastBrace = cleanedResponse.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      cleanedResponse = cleanedResponse.substring(firstBrace, lastBrace + 1);
+    }
+
+    let quizData;
+    try {
+      quizData = JSON.parse(cleanedResponse);
+    } catch (parseError) {
+      console.error('JSON Parse Error in generateQuiz:', parseError.message);
+      console.log('Cleaned Response that failed:', cleanedResponse);
+      return res.status(500).json({ 
+        message: 'AI generated invalid JSON. Please try again.', 
+        error: parseError.message 
+      });
+    }
 
     const userId = req.user.id || req.user._id;
     if (!userId) {
@@ -103,17 +121,22 @@ const getUserStats = async (req, res) => {
     }
 
     console.log('--- STATS CALCULATION START ---');
-    console.log('User ID:', userId);
+    console.log('User ID from Request:', userId);
 
-    // Fetch ALL quizzes for this user. 
-    // We search by the userId as it's stored in the DB (usually as an ObjectId)
-    // Mongoose handles string to ObjectId casting in .find()
-    const allUserQuizzes = await Quiz.find({ userId: userId }).sort({ createdAt: -1 });
-    console.log(`Found ${allUserQuizzes.length} quizzes for user.`);
+    // Mongoose handles string to ObjectId casting automatically for .find()
+    // but we'll fetch using the userId string first, then try ObjectId if nothing found
+    let allUserQuizzes = await Quiz.find({ userId: userId }).sort({ createdAt: -1 });
+    
+    if (allUserQuizzes.length === 0 && mongoose.Types.ObjectId.isValid(userId)) {
+      console.log('No quizzes found with string ID, trying ObjectId conversion...');
+      allUserQuizzes = await Quiz.find({ userId: new mongoose.Types.ObjectId(userId) }).sort({ createdAt: -1 });
+    }
+
+    console.log(`Final count: Found ${allUserQuizzes.length} quizzes for user.`);
 
     // Filter for quizzes that have a score
     const scoredQuizzes = allUserQuizzes.filter(q => q.score !== null && q.score !== undefined);
-    console.log(`Found ${scoredQuizzes.length} quizzes with scores.`);
+    console.log(`Found ${scoredQuizzes.length} scored quizzes.`);
 
     let totalQuestionsAnswered = 0;
     let totalCorrectAnswers = 0;
@@ -121,7 +144,6 @@ const getUserStats = async (req, res) => {
 
     scoredQuizzes.forEach(quiz => {
       const score = Number(quiz.score) || 0;
-      // Get total questions from quiz record or count the questions array
       let total = Number(quiz.totalQuestions);
       if (!total || total === 0) {
         total = (quiz.questions && quiz.questions.length > 0) ? quiz.questions.length : 5;
@@ -130,7 +152,6 @@ const getUserStats = async (req, res) => {
       totalQuestionsAnswered += total;
       totalCorrectAnswers += score;
 
-      // Track by subject
       const subject = quiz.subject || 'General';
       if (!subjectStats[subject]) {
         subjectStats[subject] = { score: 0, total: 0 };
@@ -139,56 +160,47 @@ const getUserStats = async (req, res) => {
       subjectStats[subject].total += total;
     });
 
-    // Calculate Average Accuracy
     const averageScore = totalQuestionsAnswered > 0 
       ? Math.round((totalCorrectAnswers / totalQuestionsAnswered) * 100) 
       : 0;
 
-    // Calculate Streak (Consecutive Days)
     const uniqueDates = [...new Set(
       scoredQuizzes
         .filter(q => q.createdAt)
         .map(q => new Date(q.createdAt).toDateString())
-    )]; // Already sorted by createdAt: -1 from query
+    )];
 
     let currentStreak = 0;
     if (uniqueDates.length > 0) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      
       const lastQuizDate = new Date(uniqueDates[0]);
       lastQuizDate.setHours(0, 0, 0, 0);
+      const diffDays = Math.floor(Math.abs(today - lastQuizDate) / (1000 * 60 * 60 * 24));
 
-      const diffTime = Math.abs(today - lastQuizDate);
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-      // If last quiz was today (0) or yesterday (1), streak is alive
       if (diffDays <= 1) {
         currentStreak = 1;
         for (let i = 0; i < uniqueDates.length - 1; i++) {
           const d1 = new Date(uniqueDates[i]); d1.setHours(0,0,0,0);
           const d2 = new Date(uniqueDates[i+1]); d2.setHours(0,0,0,0);
           const gap = Math.floor(Math.abs(d1 - d2) / (1000 * 60 * 60 * 24));
-          if (gap === 1) {
-            currentStreak++;
-          } else {
-            break;
-          }
+          if (gap === 1) currentStreak++;
+          else break;
         }
       }
     }
 
-    // Format Subject Accuracy for Frontend
     const subjectAccuracy = Object.keys(subjectStats).map(subject => ({
       subject: subject,
       accuracy: Math.round((subjectStats[subject].score / subjectStats[subject].total) * 100)
     }));
 
     const stats = {
-      totalQuestionsAnswered: scoredQuizzes.length, // Show number of quizzes solved as requested by "Solved" label
+      totalQuestionsAnswered: scoredQuizzes.length, 
       averageScore: averageScore,
       streak: currentStreak,
-      subjectAccuracy: subjectAccuracy
+      subjectAccuracy: subjectAccuracy,
+      totalQuizzesFound: allUserQuizzes.length // Extra info for debugging
     };
 
     console.log('Calculated Stats:', stats);
