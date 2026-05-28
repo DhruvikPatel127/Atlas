@@ -32,9 +32,16 @@ const generateQuiz = async (req, res) => {
 
     const aiResponse = await generateContent(prompt, 'quiz');
     
-    // Clean up the response (Gemini sometimes adds markdown backticks)
-    const cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
-    const quizData = JSON.parse(cleanedResponse);
+    // Improved JSON cleaning and parsing
+    let quizData;
+    try {
+      const cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
+      quizData = JSON.parse(cleanedResponse);
+    } catch (parseError) {
+      console.error('JSON Parse Error. Raw AI Response:', aiResponse);
+      // Fallback if AI output is not valid JSON
+      throw new Error('AI generated an invalid quiz format. Please try again.');
+    }
 
     const userId = req.user.id || req.user._id;
     if (!userId) {
@@ -78,7 +85,7 @@ const submitQuizScore = async (req, res) => {
     const quiz = await Quiz.findOneAndUpdate(
       { _id: quizId, userId: userId },
       { $set: { score: Number(score) } },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!quiz) {
@@ -102,12 +109,19 @@ const getUserStats = async (req, res) => {
     }
 
     console.log('--- PROGRESS STATS CALCULATION ---');
-    console.log('User ID:', userId);
+    console.log('User ID from request:', userId);
 
     // 1. Fetch ALL quizzes for this user. 
-    // We use the same simple find logic as noteController which we know works.
-    const quizzes = await Quiz.find({ userId: userId }).sort({ createdAt: -1 });
-    console.log(`Found ${quizzes.length} total quizzes for user.`);
+    // IMPORTANT: Some quizzes might have userId stored as a string, others as an ObjectId.
+    // We'll search for both to be absolutely sure.
+    const quizzes = await Quiz.find({ 
+      $or: [
+        { userId: userId },
+        { userId: userId.toString() }
+      ]
+    }).sort({ createdAt: -1 });
+    
+    console.log(`Found ${quizzes.length} total quizzes in database for this user.`);
 
     // 2. Filter quizzes that have been completed (have a score)
     const completedQuizzes = quizzes.filter(q => q.score !== null && q.score !== undefined);
