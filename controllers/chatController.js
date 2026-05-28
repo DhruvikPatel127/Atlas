@@ -1,4 +1,3 @@
-const mongoose = require('mongoose');
 const Chat = require('../models/Chat');
 const Note = require('../models/Note');
 const User = require('../models/User');
@@ -16,10 +15,7 @@ const sendMessage = async (req, res) => {
       return res.status(401).json({ message: 'User ID not found in token. Please log in again.' });
     }
 
-    const userObjectId = new mongoose.Types.ObjectId(userId);
-    const noteObjectId = isValidObjectId ? new mongoose.Types.ObjectId(noteId) : null;
-
-    let chat = isValidObjectId ? await Chat.findOne({ noteId: noteObjectId, userId: userObjectId }) : null;
+    let chat = isValidObjectId ? await Chat.findOne({ noteId, userId: userId }) : null;
 
     let history = [];
     if (chat) {
@@ -63,8 +59,8 @@ const sendMessage = async (req, res) => {
 
     if (!chat) {
       chat = new Chat({
-        userId: userObjectId,
-        noteId: noteObjectId,
+        userId: userId,
+        noteId: isValidObjectId ? noteId : null,
         messages: [
           ...history,
           { role: 'user', parts: [{ text: message }] },
@@ -87,10 +83,7 @@ const sendMessage = async (req, res) => {
 const getChatByNoteId = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-    const userObjectId = new mongoose.Types.ObjectId(userId);
-    const noteObjectId = new mongoose.Types.ObjectId(req.params.noteId);
-    
-    const chat = await Chat.findOne({ noteId: noteObjectId, userId: userObjectId });
+    const chat = await Chat.findOne({ noteId: req.params.noteId, userId: userId });
     if (!chat) return res.json({ messages: [] });
     res.json(chat);
   } catch (error) {
