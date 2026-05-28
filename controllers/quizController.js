@@ -16,42 +16,66 @@ const generateQuiz = async (req, res) => {
     const note = await Note.findById(noteId);
     if (!note) return res.status(404).json({ message: 'Note not found' });
 
-    const prompt = `Based on the following notes, generate a quiz with 5 multiple-choice questions. 
-    Return the response in JSON format like this:
+    const prompt = `Generate a 5-question multiple-choice quiz based on these notes.
+    
+    STRICT RULE: Your entire response must be ONLY the JSON object. Do not include any text before or after the JSON. Do not include markdown backticks.
+    
+    JSON format to follow:
     {
       "title": "Quiz Title",
       "questions": [
         {
-          "question": "Question text?",
-          "options": ["Option A", "Option B", "Option C", "Option D"],
-          "correctAnswer": "Option A"
+          "question": "The question text?",
+          "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
+          "correctAnswer": "Option 1"
         }
       ]
     }
+
     Notes: ${note.content}`;
 
     const aiResponse = await generateContent(prompt, 'quiz');
     
-    // Clean up the response (Gemini sometimes adds markdown backticks or extra text)
-    let cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
+    // Extremely robust JSON extraction
+    let cleanedResponse = aiResponse.trim();
     
-    // Attempt to find the first '{' and last '}' to handle cases where AI adds preamble/postamble
-    const firstBrace = cleanedResponse.indexOf('{');
-    const lastBrace = cleanedResponse.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1) {
-      cleanedResponse = cleanedResponse.substring(firstBrace, lastBrace + 1);
+    // 1. Remove markdown code blocks if present
+    cleanedResponse = cleanedResponse.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    
+    // 2. Find the actual JSON object (look for the one containing "title")
+    const titleIdx = cleanedResponse.indexOf('"title"');
+    let startIdx = -1;
+    if (titleIdx !== -1) {
+      // Find the '{' that opens the object containing "title"
+      startIdx = cleanedResponse.lastIndexOf('{', titleIdx);
+    } else {
+      startIdx = cleanedResponse.indexOf('{');
+    }
+
+    const endIdx = cleanedResponse.lastIndexOf('}');
+    
+    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+      cleanedResponse = cleanedResponse.substring(startIdx, endIdx + 1);
     }
 
     let quizData;
     try {
       quizData = JSON.parse(cleanedResponse);
     } catch (parseError) {
-      console.error('JSON Parse Error in generateQuiz:', parseError.message);
-      console.log('Cleaned Response that failed:', cleanedResponse);
-      return res.status(500).json({ 
-        message: 'AI generated invalid JSON. Please try again.', 
-        error: parseError.message 
-      });
+      console.error('JSON Parse Error. Cleaned Response snippet:', cleanedResponse.substring(0, 100));
+      
+      // Fallback: Try to clean common JSON errors (trailing commas, etc)
+      try {
+        const fixedJson = cleanedResponse
+          .replace(/,\s*([\]}])/g, '$1') // trailing commas
+          .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":'); // unquoted keys
+        quizData = JSON.parse(fixedJson);
+      } catch (e) {
+        return res.status(500).json({ 
+          message: 'The AI generated an invalid response format. Please try again.',
+          debug: cleanedResponse.substring(0, 50) 
+        });
+      }
     }
 
     const userId = req.user.id || req.user._id;
@@ -124,15 +148,23 @@ const getUserStats = async (req, res) => {
     console.log('User ID from Request:', userId);
 
     // Mongoose handles string to ObjectId casting automatically for .find()
-    // but we'll fetch using the userId string first, then try ObjectId if nothing found
-    let allUserQuizzes = await Quiz.find({ userId: userId }).sort({ createdAt: -1 });
-    
-    if (allUserQuizzes.length === 0 && mongoose.Types.ObjectId.isValid(userId)) {
-      console.log('No quizzes found with string ID, trying ObjectId conversion...');
-      allUserQuizzes = await Quiz.find({ userId: new mongoose.Types.ObjectId(userId) }).sort({ createdAt: -1 });
+    // but we'll fetch using both string and ObjectId to be 100% sure
+    let userObjectId;
+    try {
+      userObjectId = new mongoose.Types.ObjectId(userId);
+    } catch (e) {
+      console.log('User ID is not a valid ObjectId string');
     }
 
-    console.log(`Final count: Found ${allUserQuizzes.length} quizzes for user.`);
+    const allUserQuizzes = await Quiz.find({ 
+      $or: [
+        { userId: userId },
+        { userId: userId.toString() },
+        ...(userObjectId ? [{ userId: userObjectId }] : [])
+      ]
+    }).sort({ createdAt: -1 });
+
+    console.log(`Final count: Found ${allUserQuizzes.length} quizzes for user ${userId}`);
 
     // Filter for quizzes that have a score
     const scoredQuizzes = allUserQuizzes.filter(q => q.score !== null && q.score !== undefined);
@@ -142,12 +174,14 @@ const getUserStats = async (req, res) => {
     let totalCorrectAnswers = 0;
     const subjectStats = {};
 
-    scoredQuizzes.forEach(quiz => {
+    scoredQuizzes.forEach((quiz, idx) => {
       const score = Number(quiz.score) || 0;
       let total = Number(quiz.totalQuestions);
       if (!total || total === 0) {
         total = (quiz.questions && quiz.questions.length > 0) ? quiz.questions.length : 5;
       }
+
+      console.log(`Quiz ${idx}: score=${score}, total=${total}`);
 
       totalQuestionsAnswered += total;
       totalCorrectAnswers += score;
@@ -200,10 +234,13 @@ const getUserStats = async (req, res) => {
       averageScore: averageScore,
       streak: currentStreak,
       subjectAccuracy: subjectAccuracy,
-      totalQuizzesFound: allUserQuizzes.length // Extra info for debugging
+      debug: {
+        totalQuizzes: allUserQuizzes.length,
+        scoredQuizzes: scoredQuizzes.length
+      }
     };
 
-    console.log('Calculated Stats:', stats);
+    console.log('Calculated Stats:', JSON.stringify(stats, null, 2));
     console.log('--- STATS CALCULATION END ---');
 
     res.json(stats);
