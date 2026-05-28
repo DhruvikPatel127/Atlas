@@ -135,22 +135,11 @@ const getUserStats = async (req, res) => {
     console.log('--- STATS CALCULATION START ---');
     console.log('User ID from Token:', userId);
 
-    let userObjectId;
-    try {
-      userObjectId = new mongoose.Types.ObjectId(userId);
-    } catch (e) {
-      console.log('User ID is not a valid ObjectId string');
-    }
+    // 1. Fetch ALL quizzes for this user
+    // Mongoose handles string to ObjectId conversion automatically for .find()
+    const allUserQuizzes = await Quiz.find({ userId: userId }).sort({ createdAt: -1 });
 
-    // 1. Fetch ALL quizzes for this user using both potential ID formats for maximum compatibility
-    const allUserQuizzes = await Quiz.find({ 
-      $or: [
-        { userId: userId },
-        { userId: userObjectId }
-      ].filter(q => q.userId !== undefined)
-    }).sort({ createdAt: -1 });
-
-    console.log(`Found ${allUserQuizzes.length} total quizzes for user.`);
+    console.log(`Found ${allUserQuizzes.length} total quizzes for user ${userId}`);
 
     // 2. Separate quizzes with scores from those without
     const quizzesWithScores = allUserQuizzes.filter(q => q.score !== null && q.score !== undefined);
@@ -201,7 +190,8 @@ const getUserStats = async (req, res) => {
       const lastQuizDate = new Date(uniqueDays[0]);
       lastQuizDate.setHours(0, 0, 0, 0);
 
-      const diffDays = Math.floor(Math.abs(today - lastQuizDate) / (1000 * 60 * 60 * 24));
+      const diffTime = Math.abs(today - lastQuizDate);
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
       if (diffDays <= 1) {
         currentStreak = 1;
@@ -222,7 +212,7 @@ const getUserStats = async (req, res) => {
     }));
 
     const stats = {
-      totalQuestionsAnswered: quizzesWithScores.length, // Showing "Quizzes Solved" instead of "Questions Solved" might be clearer
+      totalQuestionsAnswered: quizzesWithScores.length, // Showing number of quizzes solved
       averageScore: Math.round(avgScore),
       streak: currentStreak,
       subjectAccuracy: subjectAccuracy,
