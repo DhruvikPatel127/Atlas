@@ -45,23 +45,32 @@ const generateQuiz = async (req, res) => {
       }
     }
     
-    // Remove any remaining markdown backticks just in case
-    cleanedResponse = cleanedResponse.replace(/```json|```/g, '').trim();
+    // Remove any remaining markdown backticks and common problematic characters
+    cleanedResponse = cleanedResponse
+      .replace(/```json|```/g, '')
+      .replace(/[\u201C\u201D]/g, '"') // Smart quotes to normal quotes
+      .trim();
     
     let quizData;
     try {
+      // First attempt: direct parse
       quizData = JSON.parse(cleanedResponse);
     } catch (parseError) {
-      console.error('Initial JSON parse failed, attempting manual fix:', parseError.message);
-      // Try to fix common issues like trailing commas or unterminated strings if possible
-      // But for now, let's just throw a more descriptive error or try one regex cleanup
+      console.error('Initial JSON parse failed, attempting regex fix:', parseError.message);
       try {
-        const fixedJson = cleanedResponse
+        // Second attempt: more aggressive cleanup
+        let fixedJson = cleanedResponse
           .replace(/,\s*([\]}])/g, '$1') // Remove trailing commas
-          .replace(/\\n/g, ' ')           // Replace newlines in strings
+          .replace(/(\r\n|\n|\r)/gm, " ") // Remove actual newlines in middle of strings
+          .replace(/\s+/g, " ")           // Collapse multiple spaces
           .trim();
+          
+        // Ensure property names are quoted (common AI mistake)
+        fixedJson = fixedJson.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
+        
         quizData = JSON.parse(fixedJson);
       } catch (e) {
+        console.error('Final JSON parse failed. Raw response was:', aiResponse);
         throw new Error('AI generated invalid quiz format. Please try again.');
       }
     }
