@@ -17,7 +17,9 @@ const generateQuiz = async (req, res) => {
     if (!note) return res.status(404).json({ message: 'Note not found' });
 
     const prompt = `Based on the following notes, generate a quiz with 5 multiple-choice questions. 
-    Return the response in JSON format like this:
+    IMPORTANT: Return ONLY a valid JSON object. Do not include any markdown backticks or extra text.
+    
+    JSON Structure:
     {
       "title": "Quiz Title",
       "questions": [
@@ -28,13 +30,41 @@ const generateQuiz = async (req, res) => {
         }
       ]
     }
+    
     Notes: ${note.content}`;
 
     const aiResponse = await generateContent(prompt, 'quiz');
     
-    // Clean up the response (Gemini sometimes adds markdown backticks)
-    const cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
-    const quizData = JSON.parse(cleanedResponse);
+    // Robust JSON extraction
+    let cleanedResponse = aiResponse.trim();
+    if (cleanedResponse.includes('{')) {
+      const firstBrace = cleanedResponse.indexOf('{');
+      const lastBrace = cleanedResponse.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        cleanedResponse = cleanedResponse.substring(firstBrace, lastBrace + 1);
+      }
+    }
+    
+    // Remove any remaining markdown backticks just in case
+    cleanedResponse = cleanedResponse.replace(/```json|```/g, '').trim();
+    
+    let quizData;
+    try {
+      quizData = JSON.parse(cleanedResponse);
+    } catch (parseError) {
+      console.error('Initial JSON parse failed, attempting manual fix:', parseError.message);
+      // Try to fix common issues like trailing commas or unterminated strings if possible
+      // But for now, let's just throw a more descriptive error or try one regex cleanup
+      try {
+        const fixedJson = cleanedResponse
+          .replace(/,\s*([\]}])/g, '$1') // Remove trailing commas
+          .replace(/\\n/g, ' ')           // Replace newlines in strings
+          .trim();
+        quizData = JSON.parse(fixedJson);
+      } catch (e) {
+        throw new Error('AI generated invalid quiz format. Please try again.');
+      }
+    }
 
     const userId = req.user.id || req.user._id;
     if (!userId) {
