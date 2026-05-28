@@ -17,9 +17,7 @@ const generateQuiz = async (req, res) => {
     if (!note) return res.status(404).json({ message: 'Note not found' });
 
     const prompt = `Based on the following notes, generate a quiz with 5 multiple-choice questions. 
-    IMPORTANT: Return ONLY a valid JSON object. Do not include any markdown backticks or extra text.
-    
-    JSON Structure:
+    Return the response in JSON format like this:
     {
       "title": "Quiz Title",
       "questions": [
@@ -30,50 +28,13 @@ const generateQuiz = async (req, res) => {
         }
       ]
     }
-    
     Notes: ${note.content}`;
 
     const aiResponse = await generateContent(prompt, 'quiz');
     
-    // Robust JSON extraction
-    let cleanedResponse = aiResponse.trim();
-    if (cleanedResponse.includes('{')) {
-      const firstBrace = cleanedResponse.indexOf('{');
-      const lastBrace = cleanedResponse.lastIndexOf('}');
-      if (firstBrace !== -1 && lastBrace !== -1) {
-        cleanedResponse = cleanedResponse.substring(firstBrace, lastBrace + 1);
-      }
-    }
-    
-    // Remove any remaining markdown backticks and common problematic characters
-    cleanedResponse = cleanedResponse
-      .replace(/```json|```/g, '')
-      .replace(/[\u201C\u201D]/g, '"') // Smart quotes to normal quotes
-      .trim();
-    
-    let quizData;
-    try {
-      // First attempt: direct parse
-      quizData = JSON.parse(cleanedResponse);
-    } catch (parseError) {
-      console.error('Initial JSON parse failed, attempting regex fix:', parseError.message);
-      try {
-        // Second attempt: more aggressive cleanup
-        let fixedJson = cleanedResponse
-          .replace(/,\s*([\]}])/g, '$1') // Remove trailing commas
-          .replace(/(\r\n|\n|\r)/gm, " ") // Remove actual newlines in middle of strings
-          .replace(/\s+/g, " ")           // Collapse multiple spaces
-          .trim();
-          
-        // Ensure property names are quoted (common AI mistake)
-        fixedJson = fixedJson.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
-        
-        quizData = JSON.parse(fixedJson);
-      } catch (e) {
-        console.error('Final JSON parse failed. Raw response was:', aiResponse);
-        throw new Error('AI generated invalid quiz format. Please try again.');
-      }
-    }
+    // Clean up the response (Gemini sometimes adds markdown backticks)
+    const cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
+    const quizData = JSON.parse(cleanedResponse);
 
     const userId = req.user.id || req.user._id;
     if (!userId) {
@@ -109,24 +70,23 @@ const submitQuizScore = async (req, res) => {
       return res.status(400).json({ message: 'Quiz ID is required' });
     }
 
-    const userObjectId = new mongoose.Types.ObjectId(userId);
-    const quizObjectId = new mongoose.Types.ObjectId(quizId);
+    console.log(`--- SUBMITTING SCORE ---`);
+    console.log(`Quiz ID: ${quizId}, Score: ${score}, User: ${userId}`);
 
-    console.log(`Submitting score for quiz ${quizId}: ${score} (User: ${userId})`);
-
-    // Use returnDocument: 'after' instead of new: true to avoid deprecation warning
+    // Update the quiz score. We use the same userId string from the token 
+    // to match the document, just like in Note/getNotes.
     const quiz = await Quiz.findOneAndUpdate(
-      { _id: quizObjectId, userId: userObjectId },
+      { _id: quizId, userId: userId },
       { $set: { score: Number(score) } },
-      { returnDocument: 'after' }
+      { new: true }
     );
 
     if (!quiz) {
-      console.log(`Quiz not found or unauthorized: ${quizId} for User: ${userId}`);
+      console.log(`Quiz not found or unauthorized.`);
       return res.status(404).json({ message: 'Quiz not found' });
     }
     
-    console.log(`Score saved successfully for quiz ${quizId}. New score in DB: ${quiz.score}`);
+    console.log(`Score saved successfully. Quiz Subject: ${quiz.subject}`);
     res.json({ success: true, quiz });
   } catch (error) {
     console.error('Error saving score:', error);
@@ -141,104 +101,93 @@ const getUserStats = async (req, res) => {
       return res.status(401).json({ message: 'Unauthorized' });
     }
 
-    console.log('--- STATS CALCULATION START ---');
-    console.log('User ID from Token:', userId);
+    console.log('--- PROGRESS STATS CALCULATION ---');
+    console.log('User ID:', userId);
 
-    // 1. Fetch ALL quizzes for this user
-    // Mongoose handles string to ObjectId conversion automatically for .find()
-    const allUserQuizzes = await Quiz.find({ userId: userId }).sort({ createdAt: -1 });
+    // 1. Fetch ALL quizzes for this user. 
+    // We use the same simple find logic as noteController which we know works.
+    const quizzes = await Quiz.find({ userId: userId }).sort({ createdAt: -1 });
+    console.log(`Found ${quizzes.length} total quizzes for user.`);
 
-    console.log(`Found ${allUserQuizzes.length} total quizzes for user ${userId}`);
-
-    // 2. Separate quizzes with scores from those without
-    const quizzesWithScores = allUserQuizzes.filter(q => q.score !== null && q.score !== undefined);
-    console.log(`Found ${quizzesWithScores.length} quizzes with valid scores.`);
+    // 2. Filter quizzes that have been completed (have a score)
+    const completedQuizzes = quizzes.filter(q => q.score !== null && q.score !== undefined);
+    console.log(`Found ${completedQuizzes.length} completed quizzes with scores.`);
 
     let totalQuestionsAnswered = 0;
-    let totalScoreSum = 0;
-    let totalPossibleSum = 0;
+    let totalCorrectAnswers = 0;
     const subjectStats = {};
 
-    quizzesWithScores.forEach((q) => {
-      const qScore = typeof q.score === 'number' ? q.score : 0;
-      
-      // Determine total questions for this quiz
-      let qTotal = q.totalQuestions;
-      if (!qTotal || qTotal === 0) {
-        qTotal = (q.questions && q.questions.length > 0) ? q.questions.length : 5;
-      }
-      
-      totalQuestionsAnswered += qTotal;
-      totalScoreSum += qScore;
-      totalPossibleSum += qTotal;
+    completedQuizzes.forEach(q => {
+      const score = Number(q.score) || 0;
+      const total = Number(q.totalQuestions) || (q.questions ? q.questions.length : 5);
+      const subject = q.subject || 'General';
 
-      // Group by subject for accuracy
-      const subj = q.subject || 'General';
-      if (!subjectStats[subj]) {
-        subjectStats[subj] = { score: 0, total: 0 };
+      totalQuestionsAnswered += total;
+      totalCorrectAnswers += score;
+
+      if (!subjectStats[subject]) {
+        subjectStats[subject] = { totalScore: 0, totalQuestions: 0 };
       }
-      subjectStats[subj].score += qScore;
-      subjectStats[subj].total += qTotal;
+      subjectStats[subject].totalScore += score;
+      subjectStats[subject].totalQuestions += total;
     });
 
-    // 3. Calculate Overall Accuracy
-    const avgScore = totalPossibleSum > 0 ? (totalScoreSum / totalPossibleSum) * 100 : 0;
+    // Calculate Average Accuracy
+    const averageScore = totalQuestionsAnswered > 0 
+      ? Math.round((totalCorrectAnswers / totalQuestionsAnswered) * 100) 
+      : 0;
 
-    // 4. Calculate Streak (Consecutive Days)
+    // Calculate Subject Mastery list
+    const subjectAccuracy = Object.keys(subjectStats).map(subject => ({
+      subject: subject,
+      accuracy: Math.round((subjectStats[subject].totalScore / subjectStats[subject].totalQuestions) * 100)
+    }));
+
+    // 3. Calculate Streak (Consecutive days)
     const uniqueDays = [...new Set(
-      quizzesWithScores
-        .filter(q => q.createdAt)
+      completedQuizzes
         .map(q => new Date(q.createdAt).toDateString())
-    )].sort((a, b) => new Date(b) - new Date(a));
+    )].map(d => new Date(d)).sort((a, b) => b - a); // Sort newest first
 
-    let currentStreak = 0;
+    let streak = 0;
     if (uniqueDays.length > 0) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
-      const lastQuizDate = new Date(uniqueDays[0]);
-      lastQuizDate.setHours(0, 0, 0, 0);
-
+      const lastQuizDate = uniqueDays[0];
       const diffTime = Math.abs(today - lastQuizDate);
       const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
+      // If last quiz was today or yesterday, start counting
       if (diffDays <= 1) {
-        currentStreak = 1;
+        streak = 1;
         for (let i = 0; i < uniqueDays.length - 1; i++) {
-          const d1 = new Date(uniqueDays[i]); d1.setHours(0,0,0,0);
-          const d2 = new Date(uniqueDays[i+1]); d2.setHours(0,0,0,0);
+          const d1 = uniqueDays[i];
+          const d2 = uniqueDays[i + 1];
           const gap = Math.floor(Math.abs(d1 - d2) / (1000 * 60 * 60 * 24));
-          if (gap === 1) currentStreak++;
-          else break;
+          
+          if (gap === 1) {
+            streak++;
+          } else {
+            break;
+          }
         }
       }
     }
 
-    // 5. Format Subject Accuracy for Frontend
-    const subjectAccuracy = Object.keys(subjectStats).map(subj => ({
-      subject: subj,
-      accuracy: Math.round((subjectStats[subj].score / subjectStats[subj].total) * 100)
-    }));
-
-    const stats = {
-      totalQuestionsAnswered: quizzesWithScores.length, // Showing number of quizzes solved
-      averageScore: Math.round(avgScore),
-      streak: currentStreak,
-      subjectAccuracy: subjectAccuracy,
-      debug: {
-        totalQuizzes: allUserQuizzes.length,
-        scoredQuizzes: quizzesWithScores.length,
-        totalQuestions: totalQuestionsAnswered
-      }
+    const finalStats = {
+      totalQuestionsAnswered: completedQuizzes.length, // Display "Solved" as number of quizzes
+      averageScore: averageScore,
+      streak: streak,
+      subjectAccuracy: subjectAccuracy
     };
 
-    console.log('Returning Stats:', JSON.stringify(stats));
-    console.log('--- STATS CALCULATION END ---');
-    
-    res.json(stats);
+    console.log('Final Stats:', finalStats);
+    res.json(finalStats);
+
   } catch (error) {
-    console.error('CRITICAL Stats error:', error);
-    res.status(500).json({ message: 'Error fetching stats', error: error.message });
+    console.error('Stats Calculation Error:', error);
+    res.status(500).json({ message: 'Error calculating stats', error: error.message });
   }
 };
 
