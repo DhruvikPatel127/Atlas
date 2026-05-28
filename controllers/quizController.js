@@ -112,20 +112,24 @@ const getUserStats = async (req, res) => {
     console.log('User ID from request:', userId);
 
     // 1. Fetch ALL quizzes for this user. 
-    // IMPORTANT: Some quizzes might have userId stored as a string, others as an ObjectId.
-    // We'll search for both to be absolutely sure.
+    // We'll search by the userId as it's stored in the DB
     const quizzes = await Quiz.find({ 
       $or: [
         { userId: userId },
-        { userId: userId.toString() }
+        { userId: new mongoose.Types.ObjectId(userId) }
       ]
     }).sort({ createdAt: -1 });
     
-    console.log(`Found ${quizzes.length} total quizzes in database for this user.`);
+    console.log(`DEBUG: Found ${quizzes.length} total quizzes for user ${userId}`);
+    
+    // Detailed log of all quizzes to see what's happening
+    quizzes.forEach((q, i) => {
+      console.log(`DEBUG: Quiz ${i}: ID=${q._id}, Score=${q.score}, Total=${q.totalQuestions}, Subject=${q.subject}, CreatedAt=${q.createdAt}`);
+    });
 
     // 2. Filter quizzes that have been completed (have a score)
     const completedQuizzes = quizzes.filter(q => q.score !== null && q.score !== undefined);
-    console.log(`Found ${completedQuizzes.length} completed quizzes with scores.`);
+    console.log(`DEBUG: Found ${completedQuizzes.length} completed quizzes with scores.`);
 
     let totalQuestionsAnswered = 0;
     let totalCorrectAnswers = 0;
