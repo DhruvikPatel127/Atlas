@@ -115,15 +115,27 @@ const generateMindMap = async (req, res) => {
     Each node should have an 'id' and a 'label'.
     Each edge should have a 'from' and a 'to' id.
     
-    Start with a central topic node.
+    CRITICAL: Return ONLY the JSON object. Do not include any explanation, conversational text, or markdown code blocks. 
+    Ensure the JSON is perfectly valid. Avoid special characters like parentheses in IDs.
     
-    Notes: ${note.content}
-    
-    Return ONLY valid JSON.`;
+    Notes: ${note.content}`;
 
     const aiResponse = await generateContent(prompt, 'mindmap');
-    const cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
-    const mindMapData = JSON.parse(cleanedResponse);
+    
+    // Improved JSON extraction
+    let mindMapData;
+    try {
+      // Find the first { and the last } to extract JSON even if there is surrounding text
+      const startIndex = aiResponse.indexOf('{');
+      const endIndex = aiResponse.lastIndexOf('}');
+      if (startIndex === -1 || endIndex === -1) throw new Error("No JSON found in response");
+      
+      const jsonStr = aiResponse.substring(startIndex, endIndex + 1);
+      mindMapData = JSON.parse(jsonStr);
+    } catch (parseError) {
+      console.error('Mind Map JSON Parse Error. Raw Response:', aiResponse);
+      throw new Error('AI failed to generate a valid visual map. Please try again.');
+    }
     
     res.json(mindMapData);
   } catch (error) {
