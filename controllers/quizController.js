@@ -19,13 +19,19 @@ const generateQuiz = async (req, res) => {
     const prompt = `Create a 5-question multiple choice quiz about: ${note.content}. 
     Subject: ${note.subject || 'General'}.
     The response MUST be a JSON object with this structure:
-    {"title": "Quiz Title", "subject": "Subject", "questions": [{"question": "Q", "options": ["A", "B", "C", "D"], "answer": "A"}]}`;
+    {"title": "Quiz Title", "subject": "Subject", "questions": [{"question": "Q", "options": ["A", "B", "C", "D"], "correctAnswer": "A"}]}`;
 
     const aiResponse = await generateContent(prompt, 'quiz', 1, true);
     
     let quizData;
     try {
       quizData = JSON.parse(aiResponse);
+      // Ensure the 'answer' field from AI is mapped to 'correctAnswer' if needed
+      quizData.questions = quizData.questions.map(q => ({
+        question: q.question,
+        options: q.options,
+        correctAnswer: q.correctAnswer || q.answer
+      }));
     } catch (parseError) {
       console.error('Quiz JSON Parse Error. Raw AI Response:', aiResponse);
       throw new Error('AI generated an invalid quiz format. Please try again.');
