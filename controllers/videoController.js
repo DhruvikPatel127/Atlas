@@ -33,4 +33,33 @@ const generateAvatarVideo = async (req, res) => {
   }
 };
 
-module.exports = { generateAvatarVideo };
+const generateWhiteboardTutorial = async (req, res) => {
+  try {
+    const { noteId } = req.body;
+    const userId = req.user.id || req.user._id;
+
+    const note = await Note.findOne({ _id: noteId, userId: userId });
+    if (!note) return res.status(404).json({ message: 'Note not found' });
+
+    const { generateContent } = require('./geminiController');
+    const prompt = `Act as an expert teacher. Create a step-by-step whiteboard explanation for these notes.
+    For each step, provide:
+    - title: A very short name for this step.
+    - writing: Exactly what you would write on a board (use simplified math, keywords, or formulas).
+    - narration: A clear, encouraging spoken explanation for this step.
+
+    Notes: ${note.content}
+
+    Return ONLY a JSON object: {"steps": [{"title": "", "writing": "", "narration": ""}]}`;
+
+    const aiResponse = await generateContent(prompt, 'whiteboard_script', 1, true);
+    const scriptData = JSON.parse(aiResponse);
+
+    res.json(scriptData);
+  } catch (error) {
+    console.error('Whiteboard Engine Error:', error.message);
+    res.status(500).json({ message: 'Error generating whiteboard script', error: error.message });
+  }
+};
+
+module.exports = { generateAvatarVideo, generateWhiteboardTutorial };
