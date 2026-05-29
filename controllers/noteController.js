@@ -111,58 +111,20 @@ const generateMindMap = async (req, res) => {
 
     const { generateContent } = require('./geminiController');
     const prompt = `Convert the following study notes into a visual mind map.
+    The response MUST be a JSON object with this structure:
+    {"nodes": [{"id": "1", "label": "Topic Name"}], "edges": [{"from": "1", "to": "2"}]}
     
-    You MUST respond with exactly one JSON object. No other text.
-    Format:
-    {
-      "nodes": [{"id": "1", "label": "Topic Name"}, {"id": "2", "label": "Subtopic"}],
-      "edges": [{"from": "1", "to": "2"}]
-    }
-
     Notes: ${note.content}`;
 
-    const aiResponse = await generateContent(prompt, 'mindmap');
+    // Pass true for forceJson to use application/json mime type
+    const aiResponse = await generateContent(prompt, 'mindmap', 1, true);
     
     let mindMapData;
     try {
-      // 1. Clean common AI noise
-      let cleaned = aiResponse.replace(/```json|```/g, '').trim();
-      
-      // 2. Try direct parse
-      try {
-        mindMapData = JSON.parse(cleaned);
-      } catch (e) {
-        // 3. Robust extraction: find the outermost { }
-        const start = cleaned.indexOf('{');
-        const end = cleaned.lastIndexOf('}');
-        if (start !== -1 && end !== -1) {
-          const jsonPart = cleaned.substring(start, end + 1);
-          // Remove potential mid-JSON noise like bullet points or "Nodes:" labels
-          const sanitized = jsonPart.replace(/\n\s*\* /g, '').replace(/nodes:\s*{/gi, '{');
-          mindMapData = JSON.parse(sanitized);
-        } else {
-          throw new Error("No JSON structure found");
-        }
-      }
+      mindMapData = JSON.parse(aiResponse);
     } catch (parseError) {
       console.error('Mind Map Parsing Failed. AI Response:', aiResponse);
-      // Final fallback: try to extract all individual node/edge objects and reconstruct
-      try {
-        const nodes = [];
-        const edges = [];
-        const nodeMatches = aiResponse.match(/\{"id":[^}]+\}/g);
-        const edgeMatches = aiResponse.match(/\{"from":[^}]+\}/g);
-        
-        if (nodeMatches || edgeMatches) {
-          if (nodeMatches) nodeMatches.forEach(m => { try { nodes.push(JSON.parse(m)); } catch(e){} });
-          if (edgeMatches) edgeMatches.forEach(m => { try { edges.push(JSON.parse(m)); } catch(e){} });
-          mindMapData = { nodes, edges };
-        } else {
-          throw new Error("Failed to reconstruct map");
-        }
-      } catch (fallbackError) {
-        throw new Error('AI failed to generate a valid visual map. Please try again.');
-      }
+      throw new Error('AI failed to generate a valid visual map. Please try again.');
     }
     
     res.json(mindMapData);

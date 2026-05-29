@@ -117,23 +117,19 @@ const generateStudyPlan = async (req, res) => {
     const userId = req.user.id || req.user._id;
 
     const { generateContent } = require('./geminiController');
-    const prompt = `Create a detailed study plan for an exam titled '${examTitle}' on ${examDate}.
-    The student needs to study the following subjects: ${subjects.join(', ')}.
-    Break the plan down by days leading up to the exam. For each day, provide 2-3 specific study tasks.
-    Return the plan in JSON format like this:
-    {
-      "planTitle": "Study Plan for ...",
-      "days": [
-        {
-          "day": "Day 1",
-          "tasks": ["Task 1", "Task 2"]
-        }
-      ]
-    }`;
+    const prompt = `Create a study plan for '${examTitle}' on ${examDate}.
+    Subjects: ${subjects.join(', ')}.
+    The response MUST be a JSON object with this structure:
+    {"planTitle": "Study Plan", "days": [{"day": "Day 1", "tasks": ["Task 1"]}]} `;
 
-    const aiResponse = await generateContent(prompt, 'planner');
-    const cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
-    const planData = JSON.parse(cleanedResponse);
+    const aiResponse = await generateContent(prompt, 'planner', 1, true);
+    let planData;
+    try {
+      planData = JSON.parse(aiResponse);
+    } catch (error) {
+      console.error('Study planner error:', error);
+      throw new Error('AI failed to generate a valid study plan. Please try again.');
+    }
     
     res.json(planData);
   } catch (error) {

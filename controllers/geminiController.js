@@ -30,7 +30,7 @@ const MODELS = [
   "gemini-3.5-flash"
 ];
 
-const generateContent = async (prompt, feature = 'general', attempt = 1) => {
+const generateContent = async (prompt, feature = 'general', attempt = 1, forceJson = false) => {
   const genAI = getNextGenAI();
   const modelName = MODELS[0];
   
@@ -40,9 +40,10 @@ const generateContent = async (prompt, feature = 'general', attempt = 1) => {
       model: modelName,
       generationConfig: {
         maxOutputTokens: 2048,
-        temperature: 0.7,
+        temperature: forceJson ? 0.1 : 0.7, // Lower temperature for more predictable JSON
         topP: 0.8,
         topK: 40,
+        responseMimeType: forceJson ? "application/json" : "text/plain",
       }
     });
     

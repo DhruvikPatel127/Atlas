@@ -16,30 +16,18 @@ const generateQuiz = async (req, res) => {
     const note = await Note.findById(noteId);
     if (!note) return res.status(404).json({ message: 'Note not found' });
 
-    const prompt = `Based on the following notes, generate a quiz with 5 multiple-choice questions. 
-    Return the response in JSON format like this:
-    {
-      "title": "Quiz Title",
-      "questions": [
-        {
-          "question": "Question text?",
-          "options": ["Option A", "Option B", "Option C", "Option D"],
-          "correctAnswer": "Option A"
-        }
-      ]
-    }
-    Notes: ${note.content}`;
+    const prompt = `Create a 5-question multiple choice quiz about: ${note.content}. 
+    Subject: ${note.subject || 'General'}.
+    The response MUST be a JSON object with this structure:
+    {"title": "Quiz Title", "subject": "Subject", "questions": [{"question": "Q", "options": ["A", "B", "C", "D"], "answer": "A"}]}`;
 
-    const aiResponse = await generateContent(prompt, 'quiz');
+    const aiResponse = await generateContent(prompt, 'quiz', 1, true);
     
-    // Improved JSON cleaning and parsing
     let quizData;
     try {
-      const cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
-      quizData = JSON.parse(cleanedResponse);
+      quizData = JSON.parse(aiResponse);
     } catch (parseError) {
-      console.error('JSON Parse Error. Raw AI Response:', aiResponse);
-      // Fallback if AI output is not valid JSON
+      console.error('Quiz JSON Parse Error. Raw AI Response:', aiResponse);
       throw new Error('AI generated an invalid quiz format. Please try again.');
     }
 
