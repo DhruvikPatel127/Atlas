@@ -59,10 +59,39 @@ const generateWhiteboardTutorial = async (req, res) => {
     
     let scriptData;
     try {
-      scriptData = JSON.parse(aiResponse);
+      // 1. Clean common AI noise and ensure valid JSON
+      let cleaned = aiResponse.replace(/```json|```/g, '').trim();
+      
+      // 2. Handle potential raw newlines inside strings that break JSON.parse
+      // This regex looks for newlines that are NOT escaped
+      cleaned = cleaned.replace(/\n/g, '\\n');
+      
+      // 3. Find the outermost brackets to extract JSON
+      const start = cleaned.indexOf('{');
+      const end = cleaned.lastIndexOf('}');
+      if (start !== -1 && end !== -1) {
+        const jsonPart = cleaned.substring(start, end + 1);
+        scriptData = JSON.parse(jsonPart);
+      } else {
+        throw new Error("No JSON structure found");
+      }
     } catch (parseError) {
       console.error('Whiteboard JSON Parse Error. Raw Response:', aiResponse);
-      throw new Error('AI failed to generate a valid whiteboard session. Please try again.');
+      // Final attempt: manual extraction of steps if the structure is broken but contains objects
+      try {
+        const steps = [];
+        const stepMatches = aiResponse.match(/\{"title":[^}]+\}/g);
+        if (stepMatches) {
+          stepMatches.forEach(m => {
+            try { steps.push(JSON.parse(m.replace(/\n/g, '\\n'))); } catch(e){}
+          });
+          scriptData = { steps };
+        } else {
+          throw new Error("Failed to reconstruct steps");
+        }
+      } catch (fallbackError) {
+        throw new Error('AI failed to generate a valid whiteboard session. Please try again.');
+      }
     }
 
     res.json(scriptData);
