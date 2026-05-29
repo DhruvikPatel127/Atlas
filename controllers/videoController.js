@@ -50,10 +50,20 @@ const generateWhiteboardTutorial = async (req, res) => {
 
     Notes: ${note.content}
 
-    Return ONLY a JSON object: {"steps": [{"title": "", "writing": "", "narration": ""}]}`;
+    The response MUST be a single, valid JSON object with this exact structure:
+    {"steps": [{"title": "Step Name", "writing": "Text on board", "narration": "Spoken explanation"}]}
+    
+    IMPORTANT: Escape all special characters and do not use newlines within JSON strings.`;
 
     const aiResponse = await generateContent(prompt, 'whiteboard_script', 1, true);
-    const scriptData = JSON.parse(aiResponse);
+    
+    let scriptData;
+    try {
+      scriptData = JSON.parse(aiResponse);
+    } catch (parseError) {
+      console.error('Whiteboard JSON Parse Error. Raw Response:', aiResponse);
+      throw new Error('AI failed to generate a valid whiteboard session. Please try again.');
+    }
 
     res.json(scriptData);
   } catch (error) {
