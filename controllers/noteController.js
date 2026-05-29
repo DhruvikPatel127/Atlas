@@ -83,9 +83,60 @@ const deleteNote = async (req, res) => {
   }
 };
 
+const generatePodcastSummary = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const note = await Note.findById(id);
+    if (!note) return res.status(404).json({ message: 'Note not found' });
+
+    const { generateContent } = require('./geminiController');
+    const prompt = `Convert the following study notes into a conversational, engaging, and easy-to-understand podcast-style summary script. 
+    Imagine an expert tutor explaining this to a student. Keep it concise but cover all key points.
+    
+    Notes: ${note.content}`;
+
+    const summaryScript = await generateContent(prompt, 'podcast');
+    res.json({ script: summaryScript });
+  } catch (error) {
+    console.error('Podcast summary error:', error);
+    res.status(500).json({ message: 'Error generating summary', error: error.message });
+  }
+};
+
+const generateMindMap = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const note = await Note.findById(id);
+    if (!note) return res.status(404).json({ message: 'Note not found' });
+
+    const { generateContent } = require('./geminiController');
+    const prompt = `Based on the following study notes, create a structured mind map in JSON format.
+    The JSON should have a 'nodes' array and an 'edges' array.
+    Each node should have an 'id' and a 'label'.
+    Each edge should have a 'from' and a 'to' id.
+    
+    Start with a central topic node.
+    
+    Notes: ${note.content}
+    
+    Return ONLY valid JSON.`;
+
+    const aiResponse = await generateContent(prompt, 'mindmap');
+    const cleanedResponse = aiResponse.replace(/```json|```/g, '').trim();
+    const mindMapData = JSON.parse(cleanedResponse);
+    
+    res.json(mindMapData);
+  } catch (error) {
+    console.error('Mind map error:', error);
+    res.status(500).json({ message: 'Error generating mind map', error: error.message });
+  }
+};
+
 module.exports = {
   uploadNote,
   getNotes,
   getNoteById,
   deleteNote,
+  generatePodcastSummary,
+  generateMindMap,
 };

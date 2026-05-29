@@ -126,7 +126,11 @@ const extractTextFromBuffer = async (buffer, mimeType, attempt = 1) => {
     console.log(`Attempting extraction (Attempt ${attempt}) with Key #${currentKeyIndex}...`);
     const model = genAI.getGenerativeModel({ model: modelName });
     const result = await model.generateContent([
-      "Extract all the text from this file and return it as a plain text string. If there are tables or diagrams, describe them simply.",
+      "Extract all text from this file. It may contain student handwriting, diagrams, or printed text. " +
+      "If it is handwritten, do your best to transcribe it accurately. " +
+      "Maintain the logical structure (headings, bullet points). " +
+      "If there are diagrams or tables, provide a clear text description of what they represent. " +
+      "Return only the transcribed text.",
       {
         inlineData: {
           data: buffer.toString("base64"),
