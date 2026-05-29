@@ -43,19 +43,6 @@ const generateWhiteboardTutorial = async (req, res) => {
 
     const { generateContent } = require('./geminiController');
     const prompt = `Act as an expert teacher. Create a step-by-step whiteboard explanation for these notes.
-    For each step, provide:
-    - title: A very short name for this step.
-    - writing: Exactly what you would write on a board (use simplified math, keywords, or formulas).
-    - narration: A clear, encouraging spoken explanation for this step.
-
-    Notes: ${note.content}
-
-    The response MUST be a single, valid JSON object with this exact structure:
-    {"steps": [{"title": "Step Name", "writing": "Text on board", "narration": "Spoken explanation"}]}
-    
-    IMPORTANT: Escape all special characters and do not use newlines within JSON strings.`;
-
-    const prompt = `Act as an expert teacher. Create a step-by-step whiteboard explanation for these notes.
     Keep the explanation SHORT (max 3 steps) to ensure technical stability.
     For each step, provide:
     - title: A very short name.
