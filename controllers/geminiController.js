@@ -42,12 +42,13 @@ const callOpenRouter = async (prompt, isChat = false, history = []) => {
     const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
       model: "google/gemini-2.0-flash-exp:free", // Best free model on OpenRouter
       messages: messages,
-      header: {
-        "HTTP-Referer": "https://atlas-app.com",
-        "X-Title": "Atlas AI"
-      }
     }, {
-      headers: { 'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}` }
+      headers: { 
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'HTTP-Referer': 'https://atlas-app.com',
+        'X-Title': 'Atlas AI',
+        'Content-Type': 'application/json'
+      }
     });
 
     return response.data.choices[0].message.content;
@@ -84,20 +85,30 @@ const callDeepSeek = async (prompt, isChat = false, history = []) => {
 const generateContent = async (prompt, feature = 'general', attempt = 1) => {
   const genAI = getNextGenAI();
   
-  // 1. Try Gemini
+  // 1. Try Gemini with various model names (including 1.5-flash which is the current standard)
   if (genAI && attempt <= genAIInstances.length) {
-    try {
-      console.log(`Gemini Attempt ${attempt} with Key #${currentKeyIndex}...`);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
-      if (text) return text;
-    } catch (error) {
-      console.error(`Gemini Error:`, error.message);
-      if (attempt < genAIInstances.length) {
-        return generateContent(prompt, feature, attempt + 1);
+    const modelsToTry = ["gemini-1.5-flash", "gemini-pro", "gemini-1.0-pro"];
+    
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Gemini Attempt ${attempt} with Model: ${modelName} (Key #${currentKeyIndex})...`);
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
+        if (text) return text;
+      } catch (error) {
+        console.error(`Gemini Error (${modelName}):`, error.message);
+        // Continue to next model if 404
+        if (error.message.includes("404") || error.message.includes("not found")) continue;
+        
+        // If other error, break to retry with next key or fallback
+        break;
       }
+    }
+
+    if (attempt < genAIInstances.length) {
+      return generateContent(prompt, feature, attempt + 1);
     }
   }
 
@@ -117,19 +128,26 @@ const chatWithGemini = async (history, message, feature = 'chat', attempt = 1) =
 
   // 1. Try Gemini
   if (genAI && attempt <= genAIInstances.length) {
-    try {
-      console.log(`Gemini Chat Attempt ${attempt}...`);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const chat = model.startChat({ history: history.slice(-10) });
-      const result = await chat.sendMessage(message);
-      const response = await result.response;
-      const text = response.text();
-      if (text) return text;
-    } catch (error) {
-      console.error(`Gemini Chat Error:`, error.message);
-      if (attempt < genAIInstances.length) {
-        return chatWithGemini(history, message, feature, attempt + 1);
+    const modelsToTry = ["gemini-1.5-flash", "gemini-pro", "gemini-1.0-pro"];
+    
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Gemini Chat Attempt ${attempt} with Model: ${modelName}...`);
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const chat = model.startChat({ history: history.slice(-10) });
+        const result = await chat.sendMessage(message);
+        const response = await result.response;
+        const text = response.text();
+        if (text) return text;
+      } catch (error) {
+        console.error(`Gemini Chat Error (${modelName}):`, error.message);
+        if (error.message.includes("404") || error.message.includes("not found")) continue;
+        break;
       }
+    }
+
+    if (attempt < genAIInstances.length) {
+      return chatWithGemini(history, message, feature, attempt + 1);
     }
   }
 
@@ -148,25 +166,31 @@ const extractTextFromBuffer = async (buffer, mimeType, attempt = 1) => {
   const genAI = getNextGenAI();
   
   if (genAI && attempt <= genAIInstances.length) {
-    try {
-      console.log(`Gemini Extraction Attempt ${attempt}...`);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const result = await model.generateContent([
-        "Extract all text from this file. It may contain student handwriting, diagrams, or printed text. If it is handwritten, do your best to transcribe it accurately. Maintain the logical structure (headings, bullet points). Return only the transcribed text.",
-        { inlineData: { data: buffer.toString("base64"), mimeType } },
-      ]);
-      const response = await result.response;
-      return response.text();
-    } catch (error) {
-      console.error(`Gemini Extraction Error:`, error.message);
-      if (attempt < genAIInstances.length) {
-        return extractTextFromBuffer(buffer, mimeType, attempt + 1);
+    const modelsToTry = ["gemini-1.5-flash", "gemini-pro-vision", "gemini-pro"];
+    
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Gemini Extraction Attempt ${attempt} with Model: ${modelName}...`);
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent([
+          "Extract all text from this file. It may contain student handwriting, diagrams, or printed text. If it is handwritten, do your best to transcribe it accurately. Maintain the logical structure (headings, bullet points). Return only the transcribed text.",
+          { inlineData: { data: buffer.toString("base64"), mimeType } },
+        ]);
+        const response = await result.response;
+        const text = response.text();
+        if (text) return text;
+      } catch (error) {
+        console.error(`Gemini Extraction Error (${modelName}):`, error.message);
+        if (error.message.includes("404") || error.message.includes("not found")) continue;
+        break;
       }
+    }
+
+    if (attempt < genAIInstances.length) {
+      return extractTextFromBuffer(buffer, mimeType, attempt + 1);
     }
   }
 
-  // Note: OCR Fallback is harder because OpenRouter/DeepSeek often don't support image-to-text for free
-  // We'll stick to Gemini for OCR for now as it's the most capable free vision model
   throw new Error("OCR is currently unavailable. Please try again later.");
 };
 
