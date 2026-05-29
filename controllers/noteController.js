@@ -110,28 +110,55 @@ const generateMindMap = async (req, res) => {
     if (!note) return res.status(404).json({ message: 'Note not found' });
 
     const { generateContent } = require('./geminiController');
-    const prompt = `Based on the following study notes, create a structured mind map in JSON format.
-    The JSON should have a 'nodes' array and an 'edges' array.
-    Each node should have an 'id' and a 'label'.
-    Each edge should have a 'from' and a 'to' id.
+    const prompt = `Task: Create a visual mind map from the study notes below.
     
-    CRITICAL: Return ONLY the JSON object. Do not include any explanation, conversational text, or markdown code blocks. 
-    Ensure the JSON is perfectly valid. Avoid special characters like parentheses in IDs.
-    
-    Notes: ${note.content}`;
+    Output Format: You MUST return a single, valid JSON object following this exact structure:
+    {
+      "nodes": [
+        {"id": "node1", "label": "Main Topic"},
+        {"id": "node2", "label": "Subtopic"}
+      ],
+      "edges": [
+        {"from": "node1", "to": "node2"}
+      ]
+    }
+
+    Rules:
+    1. The 'id' must be a simple string (no spaces, no special characters).
+    2. The 'label' should be the name of the concept.
+    3. Return ONLY the JSON object. 
+    4. DO NOT use markdown code blocks (no \`\`\`json).
+    5. DO NOT include any introductory or summary text.
+
+    Notes to process: ${note.content}`;
 
     const aiResponse = await generateContent(prompt, 'mindmap');
     
-    // Improved JSON extraction
+    // Improved JSON extraction and cleaning
     let mindMapData;
     try {
-      // Find the first { and the last } to extract JSON even if there is surrounding text
-      const startIndex = aiResponse.indexOf('{');
-      const endIndex = aiResponse.lastIndexOf('}');
-      if (startIndex === -1 || endIndex === -1) throw new Error("No JSON found in response");
+      // Find the first { and the last }
+      let startIndex = aiResponse.indexOf('{');
+      let endIndex = aiResponse.lastIndexOf('}');
       
-      const jsonStr = aiResponse.substring(startIndex, endIndex + 1);
-      mindMapData = JSON.parse(jsonStr);
+      if (startIndex === -1 || endIndex === -1) {
+        console.error('No JSON brackets found. Response:', aiResponse);
+        throw new Error("No JSON found in response");
+      }
+      
+      let jsonStr = aiResponse.substring(startIndex, endIndex + 1);
+      
+      // Remove any potential non-JSON characters like bullet points or backticks that might have leaked in
+      // specifically for the case where AI returns something like "Nodes: { ... } Edges: { ... }"
+      // though our prompt asks for a single object.
+      try {
+        mindMapData = JSON.parse(jsonStr);
+      } catch (e) {
+        // Second attempt: try to clean common issues like trailing commas or weird characters
+        console.log('First JSON parse failed, attempting cleanup...');
+        jsonStr = jsonStr.replace(/,\s*([\]}])/g, '$1'); // Remove trailing commas
+        mindMapData = JSON.parse(jsonStr);
+      }
     } catch (parseError) {
       console.error('Mind Map JSON Parse Error. Raw Response:', aiResponse);
       throw new Error('AI failed to generate a valid visual map. Please try again.');
