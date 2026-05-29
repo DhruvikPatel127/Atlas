@@ -10,17 +10,18 @@ const generateWhiteboardTutorial = async (req, res) => {
     if (!note) return res.status(404).json({ message: 'Note not found' });
 
     const { generateContent } = require('./geminiController');
-    const prompt = `Act as an expert teacher. Create a step-by-step whiteboard explanation for these notes.
-    Keep the explanation SHORT (max 3 steps) to ensure technical stability.
-    For each step, provide:
-    - title: A very short name.
-    - writing: Exactly what you would write on a board.
-    - narration: A clear, encouraging spoken explanation.
+    const prompt = `Act as an expert teacher conducting a deep-dive classroom session. 
+    Explain the following notes in a way that ensures the student develops a deep understanding, not just memorization.
+    
+    Structure the tutorial into 3-4 comprehensive steps. For each step:
+    - title: A short, professional heading.
+    - writing: Exactly what you would draw or write on the whiteboard (formulas, diagrams described in text, or structured bullet points).
+    - narration: A detailed, conversational, and insightful explanation. Start with 'Now, let's look at...' or 'To truly understand this, we need to...'. Use an encouraging teacher's tone.
 
     Notes: ${note.content}
 
-    The response MUST be a single, valid JSON object with this exact structure:
-    {"steps": [{"title": "Step 1", "writing": "Formula", "narration": "Explanation"}]} `;
+    The response MUST be a single, valid JSON object:
+    {"steps": [{"title": "Concept Foundation", "writing": "Main Formula/Rule", "narration": "Deep explanation text"}]} `;
 
     const aiResponse = await generateContent(prompt, 'whiteboard_script', 1, true);
     
