@@ -60,6 +60,7 @@ app.use('/api/quiz', require('./routes/quizRoutes'));
 app.use('/api/flashcards', require('./routes/flashcardRoutes'));
 app.use('/api/payments', require('./routes/paymentRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
+app.use('/api/video', require('./routes/videoRoutes'));
 
 app.get('/', (req, res) => {
   res.send('Atlas Backend API is running...');
