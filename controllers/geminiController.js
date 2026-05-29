@@ -1,155 +1,173 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const axios = require('axios');
 const dotenv = require('dotenv');
 const { aiRequestCounter, aiTokensUsed } = require('../config/monitoring');
 
 dotenv.config();
+
+// Provider Config
+const PROVIDERS = {
+  GEMINI: 'gemini',
+  OPENROUTER: 'openrouter',
+  DEEPSEEK: 'deepseek'
+};
 
 // Support multiple API keys for rotation
 let genAIInstances = [];
 let currentKeyIndex = 0;
 
 if (process.env.GEMINI_API_KEY) {
-  // Support comma-separated keys: KEY1,KEY2,KEY3
   const keys = process.env.GEMINI_API_KEY.split(',').map(k => k.trim().replace(/["']/g, ''));
   genAIInstances = keys.map(key => new GoogleGenerativeAI(key));
-  console.log(`Initialized AI Rotation with ${genAIInstances.length} API keys.`);
+  console.log(`Initialized Gemini Rotation with ${genAIInstances.length} API keys.`);
 }
 
 const getNextGenAI = () => {
-  if (genAIInstances.length === 0) {
-    throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
-  }
+  if (genAIInstances.length === 0) return null;
   const instance = genAIInstances[currentKeyIndex];
-  // Rotate index for next time
   currentKeyIndex = (currentKeyIndex + 1) % genAIInstances.length;
   return instance;
 };
 
-// Only use gemini-3.5-flash as requested by the user for perfect consistency.
-const MODELS = [
-  "gemini-3.5-flash"
-];
+// Fallback Provider: OpenRouter
+const callOpenRouter = async (prompt, isChat = false, history = []) => {
+  if (!process.env.OPENROUTER_API_KEY) return null;
+  
+  try {
+    console.log('Attempting Fallback: OpenRouter...');
+    const messages = isChat 
+      ? [...history.map(h => ({ role: h.role === 'model' ? 'assistant' : 'user', content: h.parts[0].text })), { role: 'user', content: prompt }]
+      : [{ role: 'user', content: prompt }];
+
+    const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+      model: "google/gemini-2.0-flash-exp:free", // Best free model on OpenRouter
+      messages: messages,
+      header: {
+        "HTTP-Referer": "https://atlas-app.com",
+        "X-Title": "Atlas AI"
+      }
+    }, {
+      headers: { 'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}` }
+    });
+
+    return response.data.choices[0].message.content;
+  } catch (error) {
+    console.error('OpenRouter Fallback Error:', error.message);
+    return null;
+  }
+};
+
+// Fallback Provider: DeepSeek
+const callDeepSeek = async (prompt, isChat = false, history = []) => {
+  if (!process.env.DEEPSEEK_API_KEY) return null;
+
+  try {
+    console.log('Attempting Fallback: DeepSeek...');
+    const messages = isChat 
+      ? [...history.map(h => ({ role: h.role === 'model' ? 'assistant' : 'user', content: h.parts[0].text })), { role: 'user', content: prompt }]
+      : [{ role: 'user', content: prompt }];
+
+    const response = await axios.post('https://api.deepseek.com/chat/completions', {
+      model: "deepseek-chat",
+      messages: messages,
+    }, {
+      headers: { 'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}` }
+    });
+
+    return response.data.choices[0].message.content;
+  } catch (error) {
+    console.error('DeepSeek Fallback Error:', error.message);
+    return null;
+  }
+};
 
 const generateContent = async (prompt, feature = 'general', attempt = 1) => {
   const genAI = getNextGenAI();
-  const modelName = MODELS[0];
   
-  try {
-    console.log(`Attempting generateContent (Attempt ${attempt}) with Key #${currentKeyIndex}...`);
-    const model = genAI.getGenerativeModel({ 
-      model: modelName,
-      generationConfig: {
-        maxOutputTokens: 2048,
-        temperature: 0.7,
-        topP: 0.8,
-        topK: 40,
+  // 1. Try Gemini
+  if (genAI && attempt <= genAIInstances.length) {
+    try {
+      console.log(`Gemini Attempt ${attempt} with Key #${currentKeyIndex}...`);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      if (text) return text;
+    } catch (error) {
+      console.error(`Gemini Error:`, error.message);
+      if (attempt < genAIInstances.length) {
+        return generateContent(prompt, feature, attempt + 1);
       }
-    });
-    
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    
-    if (!text) throw new Error("Empty response from Gemini");
-    
-    // Track success
-    aiRequestCounter.labels(feature, modelName, 'success').inc();
-    const tokenCount = Math.ceil((prompt.length + text.length) / 4);
-    aiTokensUsed.labels(feature, 'total').inc(tokenCount);
-    
-    return text;
-  } catch (error) {
-    console.error(`Gemini Error (Key #${currentKeyIndex}):`, error.message);
-    
-    // Auto-retry with NEXT KEY if rate limited or overloaded
-    if ((error.message.includes("429") || error.message.includes("503") || error.message.includes("overloaded")) && attempt < genAIInstances.length + 1) {
-      console.log(`Key #${currentKeyIndex} is busy. Rotating to next key...`);
-      // Small delay before retry
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      return generateContent(prompt, feature, attempt + 1);
     }
-
-    aiRequestCounter.labels(feature, modelName, 'error').inc();
-    throw new Error("AI is currently busy across all keys. Please wait a moment.");
   }
+
+  // 2. Fallback to OpenRouter
+  const orResponse = await callOpenRouter(prompt);
+  if (orResponse) return orResponse;
+
+  // 3. Fallback to DeepSeek
+  const dsResponse = await callDeepSeek(prompt);
+  if (dsResponse) return dsResponse;
+
+  throw new Error("All AI providers are currently unavailable.");
 };
 
 const chatWithGemini = async (history, message, feature = 'chat', attempt = 1) => {
   const genAI = getNextGenAI();
-  const modelName = MODELS[0];
-  
-  try {
-    console.log(`Attempting chat (Attempt ${attempt}) with Key #${currentKeyIndex}...`);
-    const model = genAI.getGenerativeModel({ 
-      model: modelName,
-      generationConfig: {
-        maxOutputTokens: 1024,
-        temperature: 0.9, // More creative for chat
+
+  // 1. Try Gemini
+  if (genAI && attempt <= genAIInstances.length) {
+    try {
+      console.log(`Gemini Chat Attempt ${attempt}...`);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const chat = model.startChat({ history: history.slice(-10) });
+      const result = await chat.sendMessage(message);
+      const response = await result.response;
+      const text = response.text();
+      if (text) return text;
+    } catch (error) {
+      console.error(`Gemini Chat Error:`, error.message);
+      if (attempt < genAIInstances.length) {
+        return chatWithGemini(history, message, feature, attempt + 1);
       }
-    });
-    
-    const chat = model.startChat({ 
-      history: history.slice(-10), // Only send last 10 messages to keep it fast
-    });
-    
-    const result = await chat.sendMessage(message);
-    const response = await result.response;
-    const text = response.text();
-
-    if (!text) throw new Error("Empty response from Gemini Chat");
-    
-    aiRequestCounter.labels(feature, modelName, 'success').inc();
-    const tokenCount = Math.ceil((message.length + text.length) / 4);
-    aiTokensUsed.labels(feature, 'total').inc(tokenCount);
-    
-    return text;
-  } catch (error) {
-    console.error(`Gemini Chat Error (Key #${currentKeyIndex}):`, error.message);
-    
-    // Auto-retry with NEXT KEY
-    if ((error.message.includes("429") || error.message.includes("overloaded")) && attempt < genAIInstances.length + 1) {
-      console.log(`Chat Key #${currentKeyIndex} is busy. Rotating...`);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      return chatWithGemini(history, message, feature, attempt + 1);
     }
-
-    aiRequestCounter.labels(feature, modelName, 'error').inc();
-    throw new Error("Chat is temporarily unavailable. Please try again in a few seconds.");
   }
+
+  // 2. Fallback to OpenRouter
+  const orResponse = await callOpenRouter(message, true, history);
+  if (orResponse) return orResponse;
+
+  // 3. Fallback to DeepSeek
+  const dsResponse = await callDeepSeek(message, true, history);
+  if (dsResponse) return dsResponse;
+
+  throw new Error("AI Chat is currently unavailable across all providers.");
 };
 
 const extractTextFromBuffer = async (buffer, mimeType, attempt = 1) => {
   const genAI = getNextGenAI();
-  const modelName = MODELS[0];
   
-  try {
-    console.log(`Attempting extraction (Attempt ${attempt}) with Key #${currentKeyIndex}...`);
-    const model = genAI.getGenerativeModel({ model: modelName });
-    const result = await model.generateContent([
-      "Extract all text from this file. It may contain student handwriting, diagrams, or printed text. " +
-      "If it is handwritten, do your best to transcribe it accurately. " +
-      "Maintain the logical structure (headings, bullet points). " +
-      "If there are diagrams or tables, provide a clear text description of what they represent. " +
-      "Return only the transcribed text.",
-      {
-        inlineData: {
-          data: buffer.toString("base64"),
-          mimeType: mimeType,
-        },
-      },
-    ]);
-    const response = await result.response;
-    return response.text();
-  } catch (error) {
-    console.error(`Extraction error (Key #${currentKeyIndex}):`, error.message);
-    
-    if ((error.message.includes("429") || error.message.includes("overloaded")) && attempt < genAIInstances.length + 1) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      return extractTextFromBuffer(buffer, mimeType, attempt + 1);
+  if (genAI && attempt <= genAIInstances.length) {
+    try {
+      console.log(`Gemini Extraction Attempt ${attempt}...`);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const result = await model.generateContent([
+        "Extract all text from this file. It may contain student handwriting, diagrams, or printed text. If it is handwritten, do your best to transcribe it accurately. Maintain the logical structure (headings, bullet points). Return only the transcribed text.",
+        { inlineData: { data: buffer.toString("base64"), mimeType } },
+      ]);
+      const response = await result.response;
+      return response.text();
+    } catch (error) {
+      console.error(`Gemini Extraction Error:`, error.message);
+      if (attempt < genAIInstances.length) {
+        return extractTextFromBuffer(buffer, mimeType, attempt + 1);
+      }
     }
-    
-    throw error;
   }
+
+  // Note: OCR Fallback is harder because OpenRouter/DeepSeek often don't support image-to-text for free
+  // We'll stick to Gemini for OCR for now as it's the most capable free vision model
+  throw new Error("OCR is currently unavailable. Please try again later.");
 };
 
 module.exports = {
