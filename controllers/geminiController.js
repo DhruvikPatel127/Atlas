@@ -23,8 +23,11 @@ const getNextAI = () => {
   return instance;
 };
 
-// Model fallback chain for the new SDK
-const MODELS = ["gemini-3.5-flash", "gemini-1.5-flash"];
+// Use a fallback chain: 2.0-flash is the newest stable high-speed model
+const MODELS = [
+  "gemini-2.0-flash",
+  "gemini-1.5-flash"
+];
 
 const generateContent = async (prompt, feature = 'general', attempt = 1, forceJson = false, modelIndex = 0) => {
   const ai = getNextAI();
@@ -54,15 +57,15 @@ const generateContent = async (prompt, feature = 'general', attempt = 1, forceJs
       const errorMsg = error.message || JSON.stringify(error);
       console.error(`Gemini Error (${currentModel}):`, errorMsg);
       
-      // 1. If high demand/overloaded, try next key with same model
+      // 1. If high demand/rate limit, try NEXT KEY with SAME model
       if ((errorMsg.includes("503") || errorMsg.includes("429") || errorMsg.includes("demand")) && attempt < aiInstances.length) {
         const delay = Math.pow(2, attempt) * 1000 + 1000;
-        console.log(`Model ${currentModel} busy. Retrying with next key in ${delay/1000}s...`);
+        console.log(`High demand on ${currentModel}. Retrying with next key in ${delay/1000}s...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         return generateContent(prompt, feature, attempt + 1, forceJson, modelIndex);
       }
       
-      // 2. If all keys failed for current model, fallback to the next model in chain
+      // 2. If all keys fail for this model, try NEXT MODEL in chain
       if (modelIndex < MODELS.length - 1) {
         console.log(`All keys failed for ${currentModel}. Falling back to ${MODELS[modelIndex + 1]}...`);
         return generateContent(prompt, feature, 1, forceJson, modelIndex + 1);
@@ -70,7 +73,7 @@ const generateContent = async (prompt, feature = 'general', attempt = 1, forceJs
     }
   }
 
-  throw new Error(`Gemini AI is currently unavailable after trying all keys and fallback models.`);
+  throw new Error(`Atlas AI is currently overloaded across all available models. Please try again in a moment.`);
 };
 
 const chatWithGemini = async (history, message, feature = 'chat', attempt = 1, modelIndex = 0) => {
@@ -99,6 +102,7 @@ const chatWithGemini = async (history, message, feature = 'chat', attempt = 1, m
       });
       
       const text = response.text;
+
       if (text) return text;
     } catch (error) {
       const errorMsg = error.message || JSON.stringify(error);
@@ -111,13 +115,13 @@ const chatWithGemini = async (history, message, feature = 'chat', attempt = 1, m
       }
 
       if (modelIndex < MODELS.length - 1) {
-        console.log(`Chat fallback to ${MODELS[modelIndex + 1]}...`);
+        console.log(`Chat falling back to ${MODELS[modelIndex + 1]}...`);
         return chatWithGemini(history, message, feature, 1, modelIndex + 1);
       }
     }
   }
 
-  throw new Error("Chat AI is currently unavailable.");
+  throw new Error("Chat is temporarily unavailable due to extreme demand.");
 };
 
 const extractTextFromBuffer = async (buffer, mimeType, attempt = 1, modelIndex = 0) => {

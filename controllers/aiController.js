@@ -15,20 +15,23 @@ if (process.env.GEMINI_API_KEY) {
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const USE_OPENROUTER = process.env.USE_OPENROUTER === 'true';
 
-// Use the exact model name from your documentation
-const PRIMARY_MODEL = "gemini-3.5-flash";
+// Fallback model chain
+const MODELS = [
+  "gemini-2.0-flash",
+  "gemini-1.5-flash"
+];
 
-const generateContent = async (prompt, feature = 'general') => {
+const generateContent = async (prompt, feature = 'general', modelIndex = 0) => {
   if (!ai) {
     throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
   }
   
+  const currentModel = MODELS[modelIndex];
   try {
-    console.log(`Attempting generateContent with ${PRIMARY_MODEL} using @google/genai...`);
+    console.log(`Attempting generateContent with ${currentModel} using @google/genai...`);
     
-    // Use the exact syntax from your AI Studio screenshot
     const response = await ai.models.generateContent({
-      model: PRIMARY_MODEL,
+      model: currentModel,
       contents: prompt,
       config: {
         maxOutputTokens: 2048,
@@ -40,30 +43,28 @@ const generateContent = async (prompt, feature = 'general') => {
     
     if (!text) throw new Error("Empty response from Gemini");
     
-    // Track success
-    aiRequestCounter.labels(feature, PRIMARY_MODEL, 'success').inc();
-    const tokenCount = Math.ceil((prompt.length + text.length) / 4);
-    aiTokensUsed.labels(feature, 'total').inc(tokenCount);
-    
+    aiRequestCounter.labels(feature, currentModel, 'success').inc();
     return text;
   } catch (error) {
-    aiRequestCounter.labels(feature, PRIMARY_MODEL, 'error').inc();
-    console.error(`Gemini Error (${PRIMARY_MODEL}):`, error.message);
+    console.error(`Gemini Error (${currentModel}):`, error.message);
     
-    if (error.message.includes("429") || error.message.includes("503") || error.message.includes("demand")) {
-      throw new Error("AI is currently overloaded due to high demand. Please wait a few seconds and try again.");
+    // Fallback logic for high demand
+    if ((error.message.includes("429") || error.message.includes("503") || error.message.includes("demand")) && modelIndex < MODELS.length - 1) {
+      console.log(`Falling back to ${MODELS[modelIndex + 1]}...`);
+      return generateContent(prompt, feature, modelIndex + 1);
     }
-    throw new Error("AI generation failed. Please try again in a moment.");
+    throw new Error("AI is currently overloaded. Please try again in a moment.");
   }
 };
 
-const chatWithGemini = async (history, message, feature = 'chat') => {
+const chatWithGemini = async (history, message, feature = 'chat', modelIndex = 0) => {
   if (!ai) {
     throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
   }
   
+  const currentModel = MODELS[modelIndex];
   try {
-    console.log(`Attempting chat with ${PRIMARY_MODEL} using @google/genai...`);
+    console.log(`Attempting chat with ${currentModel} using @google/genai...`);
     
     const contents = [
       ...history.map(h => ({
@@ -74,7 +75,7 @@ const chatWithGemini = async (history, message, feature = 'chat') => {
     ];
 
     const response = await ai.models.generateContent({
-      model: PRIMARY_MODEL,
+      model: currentModel,
       contents: contents,
       config: {
         maxOutputTokens: 1024,
@@ -83,15 +84,12 @@ const chatWithGemini = async (history, message, feature = 'chat') => {
     });
     
     const text = response.text;
-
-    if (!text) throw new Error("Empty response from Gemini Chat");
-    
-    aiRequestCounter.labels(feature, PRIMARY_MODEL, 'success').inc();
     return text;
   } catch (error) {
-    aiRequestCounter.labels(feature, PRIMARY_MODEL, 'error').inc();
-    console.error(`Gemini Chat Error (${PRIMARY_MODEL}):`, error.message);
-    throw new Error("Chat failed due to high demand. Try again in a moment.");
+    if ((error.message.includes("429") || error.message.includes("503") || error.message.includes("demand")) && modelIndex < MODELS.length - 1) {
+      return chatWithGemini(history, message, feature, modelIndex + 1);
+    }
+    throw new Error("Chat failed due to high demand.");
   }
 };
 
