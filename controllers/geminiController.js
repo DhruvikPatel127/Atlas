@@ -22,9 +22,9 @@ const getNextGenAI = () => {
   return instance;
 };
 
-// Using gemini-3.5-flash as requested by the user
+// Using gemini-1.5-flash for maximum stability as gemini-3.5-flash is currently unavailable/overloaded
 const MODELS = [
-  "gemini-3.5-flash"
+  "gemini-1.5-flash"
 ];
 
 const generateContent = async (prompt, feature = 'general', attempt = 1, forceJson = false) => {
@@ -58,8 +58,9 @@ const generateContent = async (prompt, feature = 'general', attempt = 1, forceJs
       console.error(`Gemini Primary Error:`, error.message);
       
       // Retry logic for 503/429 errors if multiple keys are available
-      if ((error.message.includes("503") || error.message.includes("429")) && attempt < genAIInstances.length) {
-        console.log(`Retrying with next key due to service unavailability...`);
+      if ((error.message.includes("503") || error.message.includes("429") || error.message.includes("overloaded")) && attempt < genAIInstances.length) {
+        console.log(`Retrying with next key in 2 seconds due to service unavailability...`);
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Add delay
         return generateContent(prompt, feature, attempt + 1, forceJson);
       }
     }
@@ -96,8 +97,9 @@ const chatWithGemini = async (history, message, feature = 'chat', attempt = 1) =
       console.error(`Gemini Chat Primary Error:`, error.message);
       
       // Retry logic for 503/429 errors if multiple keys are available
-      if ((error.message.includes("503") || error.message.includes("429")) && attempt < genAIInstances.length) {
-        console.log(`Retrying chat with next key due to service unavailability...`);
+      if ((error.message.includes("503") || error.message.includes("429") || error.message.includes("overloaded")) && attempt < genAIInstances.length) {
+        console.log(`Retrying chat with next key in 2 seconds...`);
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Add delay
         return chatWithGemini(history, message, feature, attempt + 1);
       }
     }
@@ -110,6 +112,8 @@ const extractTextFromBuffer = async (buffer, mimeType, attempt = 1) => {
   const genAI = getNextGenAI();
   const modelName = MODELS[0];
   
+  if (!genAI) throw new Error("AI not initialized");
+
   try {
     console.log(`Attempting extraction (Attempt ${attempt}) with Key #${currentKeyIndex}...`);
     const model = genAI.getGenerativeModel({ model: modelName });
@@ -131,8 +135,9 @@ const extractTextFromBuffer = async (buffer, mimeType, attempt = 1) => {
   } catch (error) {
     console.error(`Extraction error (Key #${currentKeyIndex}):`, error.message);
     
-    if ((error.message.includes("429") || error.message.includes("overloaded")) && attempt < genAIInstances.length + 1) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    if ((error.message.includes("429") || error.message.includes("503") || error.message.includes("overloaded")) && attempt < genAIInstances.length) {
+      console.log(`Retrying extraction with next key in 2 seconds...`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
       return extractTextFromBuffer(buffer, mimeType, attempt + 1);
     }
     

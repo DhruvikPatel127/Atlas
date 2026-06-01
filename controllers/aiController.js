@@ -15,9 +15,9 @@ if (process.env.GEMINI_API_KEY) {
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const USE_OPENROUTER = process.env.USE_OPENROUTER === 'true';
 
-// Using gemini-3.5-flash as requested by the user
+// Using gemini-1.5-flash for stability
 const MODELS = {
-  gemini: "gemini-3.5-flash",
+  gemini: "gemini-1.5-flash",
 };
 
 const generateContent = async (prompt, feature = 'general') => {
