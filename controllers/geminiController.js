@@ -28,7 +28,7 @@ const MODELS = [
   "gemini-1.5-flash"
 ];
 
-const generateContent = async (prompt, feature = 'general', attempt = 1, modelIndex = 0, forceJson = false) => {
+const generateContent = async (prompt, feature = 'general', attempt = 1, forceJson = false, modelIndex = 0) => {
   const ai = getNextAI();
   const modelName = MODELS[modelIndex];
   
@@ -63,13 +63,13 @@ const generateContent = async (prompt, feature = 'general', attempt = 1, modelIn
         const delay = Math.pow(2, attempt) * 1000;
         console.log(`Retrying with next key in ${delay/1000}s...`);
         await new Promise(resolve => setTimeout(resolve, delay));
-        return generateContent(prompt, feature, attempt + 1, modelIndex, forceJson);
+        return generateContent(prompt, feature, attempt + 1, forceJson, modelIndex);
       } 
       
       // 2. If all keys failed for current model, try next model in list
       if (modelIndex < MODELS.length - 1) {
         console.log(`All keys failed for ${modelName}. Falling back to ${MODELS[modelIndex + 1]}...`);
-        return generateContent(prompt, feature, 1, modelIndex + 1, forceJson);
+        return generateContent(prompt, feature, 1, forceJson, modelIndex + 1);
       }
     }
   }
