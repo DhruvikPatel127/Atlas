@@ -23,10 +23,11 @@ const getNextAI = () => {
   return instance;
 };
 
-// Use stable model IDs for v1beta compatibility as suggested by analysis
+// Comprehensive fallback chain for maximum reliability
 const MODELS = [
   "gemini-3.5-flash",
-  "gemini-1.5-flash-latest"
+  "gemini-2.0-flash",
+  "gemini-1.5-flash"
 ];
 
 const generateContent = async (prompt, feature = 'general', attempt = 1, forceJson = false, modelIndex = 0) => {
@@ -57,23 +58,24 @@ const generateContent = async (prompt, feature = 'general', attempt = 1, forceJs
       const errorMsg = error.message || JSON.stringify(error);
       console.error(`Gemini Error (${currentModel}):`, errorMsg);
       
-      // 1. If high demand or rate limit, rotate keys for the SAME model
-      if ((errorMsg.includes("503") || errorMsg.includes("429") || errorMsg.includes("demand")) && attempt < aiInstances.length) {
-        const delay = Math.pow(2, attempt) * 1500 + 1500;
-        console.log(`Model ${currentModel} is busy. Rotating key in ${delay/1000}s...`);
+      // 1. If high demand/rate limit/404, rotate keys for the SAME model (up to 2 rounds)
+      if ((errorMsg.includes("503") || errorMsg.includes("429") || errorMsg.includes("demand") || errorMsg.includes("404")) && attempt < (aiInstances.length * 2)) {
+        // Longer backoff for "High Demand": 3s, 6s, 9s...
+        const delay = (attempt * 2000) + 1000;
+        console.log(`Issue with ${currentModel}. Retrying with next key in ${delay/1000}s...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         return generateContent(prompt, feature, attempt + 1, forceJson, modelIndex);
       }
       
-      // 2. If all keys failed for current model, or if it's a 404 (Not Found), try fallback model
+      // 2. If keys are exhausted or fatal error for this model, try NEXT MODEL in chain
       if (modelIndex < MODELS.length - 1) {
-        console.log(`Model ${currentModel} failed. Falling back to ${MODELS[modelIndex + 1]}...`);
+        console.log(`${currentModel} failed completely. Falling back to ${MODELS[modelIndex + 1]}...`);
         return generateContent(prompt, feature, 1, forceJson, modelIndex + 1);
       }
     }
   }
 
-  throw new Error(`Atlas AI is currently overloaded. Please try again in a moment.`);
+  throw new Error(`All Gemini models are currently overloaded. Please try again in 5 minutes.`);
 };
 
 const chatWithGemini = async (history, message, feature = 'chat', attempt = 1, modelIndex = 0) => {
@@ -108,8 +110,8 @@ const chatWithGemini = async (history, message, feature = 'chat', attempt = 1, m
       const errorMsg = error.message || JSON.stringify(error);
       console.error(`Gemini Chat Error (${currentModel}):`, errorMsg);
       
-      if ((errorMsg.includes("503") || errorMsg.includes("429") || errorMsg.includes("demand")) && attempt < aiInstances.length) {
-        const delay = Math.pow(2, attempt) * 1500 + 1500;
+      if ((errorMsg.includes("503") || errorMsg.includes("429") || errorMsg.includes("demand") || errorMsg.includes("404")) && attempt < (aiInstances.length * 2)) {
+        const delay = (attempt * 2000) + 1000;
         await new Promise(resolve => setTimeout(resolve, delay));
         return chatWithGemini(history, message, feature, attempt + 1, modelIndex);
       }
@@ -154,8 +156,8 @@ const extractTextFromBuffer = async (buffer, mimeType, attempt = 1, modelIndex =
     const errorMsg = error.message || JSON.stringify(error);
     console.error(`Extraction error (${currentModel}):`, errorMsg);
     
-    if ((errorMsg.includes("429") || errorMsg.includes("503") || errorMsg.includes("demand")) && attempt < aiInstances.length) {
-      const delay = Math.pow(2, attempt) * 1500 + 1500;
+    if ((errorMsg.includes("429") || errorMsg.includes("503") || errorMsg.includes("demand") || errorMsg.includes("404")) && attempt < (aiInstances.length * 2)) {
+      const delay = (attempt * 2000) + 1000;
       await new Promise(resolve => setTimeout(resolve, delay));
       return extractTextFromBuffer(buffer, mimeType, attempt + 1, modelIndex);
     }
