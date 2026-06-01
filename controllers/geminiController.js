@@ -1,18 +1,18 @@
-const { GoogleGenAI } = require("@google/genai");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 const dotenv = require('dotenv');
 const axios = require('axios');
 const { aiRequestCounter, aiTokensUsed } = require('../config/monitoring');
 
 dotenv.config();
 
-// Support multiple API keys for rotation using the new Google GenAI SDK
+// Support multiple API keys for rotation
 let aiInstances = [];
 let currentKeyIndex = 0;
 
 if (process.env.GEMINI_API_KEY) {
   const keys = process.env.GEMINI_API_KEY.split(',').map(k => k.trim().replace(/["']/g, ''));
-  aiInstances = keys.map(key => new GoogleGenAI({ apiKey: key }));
-  console.log(`Initialized AI Rotation with ${aiInstances.length} API keys using @google/genai SDK.`);
+  aiInstances = keys.map(key => new GoogleGenerativeAI(key));
+  console.log(`Initialized AI Rotation with ${aiInstances.length} API keys using @google/generative-ai SDK.`);
 }
 
 const getNextAI = () => {
@@ -22,24 +22,23 @@ const getNextAI = () => {
   return instance;
 };
 
-// Model list for fallback - Using officially supported model names
+// Model list for fallback - Using officially supported model names for @google/generative-ai
 const MODELS = [
-  "gemini-2.0-flash",
+  "gemini-2.0-flash-exp",
   "gemini-1.5-flash"
 ];
 
 const generateContent = async (prompt, feature = 'general', attempt = 1, forceJson = false, modelIndex = 0) => {
-  const ai = getNextAI();
+  const genAI = getNextAI();
   const modelName = MODELS[modelIndex];
   
-  if (ai) {
+  if (genAI) {
     try {
       console.log(`Attempting generateContent (Attempt ${attempt}) with Key #${currentKeyIndex} using ${modelName}...`);
       
-      const response = await ai.models.generateContent({
+      const model = genAI.getGenerativeModel({ 
         model: modelName,
-        contents: prompt,
-        config: {
+        generationConfig: {
           maxOutputTokens: feature === 'whiteboard_script' ? 4096 : 2048,
           temperature: forceJson ? 0.1 : 0.7,
           topP: 0.8,
@@ -48,7 +47,9 @@ const generateContent = async (prompt, feature = 'general', attempt = 1, forceJs
         }
       });
       
-      const text = response.text;
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
       
       if (text) {
         aiRequestCounter.labels(feature, modelName, 'success').inc();
@@ -78,31 +79,28 @@ const generateContent = async (prompt, feature = 'general', attempt = 1, forceJs
 };
 
 const chatWithGemini = async (history, message, feature = 'chat', attempt = 1, modelIndex = 0) => {
-  const ai = getNextAI();
+  const genAI = getNextAI();
   const modelName = MODELS[modelIndex];
   
-  if (ai) {
+  if (genAI) {
     try {
       console.log(`Attempting chat (Attempt ${attempt}) with Key #${currentKeyIndex} using ${modelName}...`);
       
-      const contents = [
-        ...history.map(h => ({
-          role: h.role === 'model' ? 'assistant' : h.role,
-          parts: [{ text: h.parts[0].text }]
-        })),
-        { role: 'user', parts: [{ text: message }] }
-      ];
-
-      const response = await ai.models.generateContent({
+      const model = genAI.getGenerativeModel({ 
         model: modelName,
-        contents: contents,
-        config: {
+        generationConfig: {
           maxOutputTokens: 1024,
           temperature: 0.9,
         }
       });
       
-      const text = response.text;
+      const chat = model.startChat({ 
+        history: history.slice(-10),
+      });
+      
+      const result = await chat.sendMessage(message);
+      const response = await result.response;
+      const text = response.text();
 
       if (text) return text;
     } catch (error) {
@@ -127,32 +125,28 @@ const chatWithGemini = async (history, message, feature = 'chat', attempt = 1, m
 };
 
 const extractTextFromBuffer = async (buffer, mimeType, attempt = 1, modelIndex = 0) => {
-  const ai = getNextAI();
+  const genAI = getNextAI();
   const modelName = MODELS[modelIndex];
   
-  if (!ai) throw new Error("AI not initialized");
+  if (!genAI) throw new Error("AI not initialized");
 
   try {
     console.log(`Attempting extraction (Attempt ${attempt}) with Key #${currentKeyIndex} using ${modelName}...`);
     
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents: [
-        {
-          parts: [
-            { text: "Extract all text from this file. It may contain student handwriting, diagrams, or printed text. If it is handwritten, do your best to transcribe it accurately. Maintain the logical structure (headings, bullet points). If there are diagrams or tables, provide a clear text description of what they represent. Return only the transcribed text." },
-            {
-              inlineData: {
-                data: buffer.toString("base64"),
-                mimeType: mimeType,
-              }
-            }
-          ]
-        }
-      ]
-    });
-    
-    return response.text;
+    const model = genAI.getGenerativeModel({ model: modelName });
+    const result = await model.generateContent([
+      {
+        text: "Extract all text from this file. It may contain student handwriting, diagrams, or printed text. If it is handwritten, do your best to transcribe it accurately. Maintain the logical structure (headings, bullet points). If there are diagrams or tables, provide a clear text description of what they represent. Return only the transcribed text."
+      },
+      {
+        inlineData: {
+          data: buffer.toString("base64"),
+          mimeType: mimeType,
+        },
+      },
+    ]);
+    const response = await result.response;
+    return response.text();
   } catch (error) {
     const errorMsg = error.message || JSON.stringify(error);
     console.error(`Extraction error (${modelName}):`, errorMsg);
@@ -173,7 +167,7 @@ const extractTextFromBuffer = async (buffer, mimeType, attempt = 1, modelIndex =
   }
 };
 
-module.exports = {
+module.exports = { 
   generateContent,
   chatWithGemini,
   extractTextFromBuffer,
