@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const chatSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   noteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Note' },
+  subject: { type: String },
   messages: [
     {
       role: { type: String, enum: ['user', 'model'], required: true },

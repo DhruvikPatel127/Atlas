@@ -15,49 +15,12 @@ if (process.env.GEMINI_API_KEY) {
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const USE_OPENROUTER = process.env.USE_OPENROUTER === 'true';
 
-// Only use gemini-1.5-flash for Gemini, or appropriate model for OpenRouter
+// Using gemini-3.5-flash as requested by the user
 const MODELS = {
-  gemini: "gemini-1.5-flash",
-  openrouter: process.env.OPENROUTER_MODEL || "google/gemini-flash-1.5"
-};
-
-const generateWithOpenRouter = async (prompt, feature) => {
-  try {
-    const response = await axios.post(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        model: MODELS.openrouter,
-        messages: [{ role: "user", content: prompt }],
-      },
-      {
-        headers: {
-          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-          "HTTP-Referer": process.env.SITE_URL || "http://localhost:3000",
-          "X-Title": "Atlas AI",
-        },
-      }
-    );
-
-    const text = response.data.choices[0].message.content;
-    
-    // Track success
-    aiRequestCounter.labels(feature, MODELS.openrouter, 'success').inc();
-    const tokenCount = Math.ceil((prompt.length + text.length) / 4);
-    aiTokensUsed.labels(feature, 'total').inc(tokenCount);
-
-    return text;
-  } catch (error) {
-    aiRequestCounter.labels(feature, MODELS.openrouter, 'error').inc();
-    console.error(`OpenRouter Error:`, error.response?.data || error.message);
-    throw new Error("AI generation via OpenRouter failed.");
-  }
+  gemini: "gemini-3.5-flash",
 };
 
 const generateContent = async (prompt, feature = 'general') => {
-  if (USE_OPENROUTER && OPENROUTER_API_KEY) {
-    return await generateWithOpenRouter(prompt, feature);
-  }
-
   if (!genAI) {
     throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
   }
@@ -91,44 +54,14 @@ const generateContent = async (prompt, feature = 'general') => {
     aiRequestCounter.labels(feature, modelName, 'error').inc();
     console.error(`Gemini Error (${modelName}):`, error.message);
     
-    if (error.message.includes("429")) {
-      throw new Error("AI is currently overloaded. Please wait a few seconds and try again.");
+    if (error.message.includes("429") || error.message.includes("503")) {
+      throw new Error("AI is currently overloaded or unavailable. Please wait a few seconds and try again.");
     }
     throw new Error("AI generation failed. Please try a shorter prompt or wait a moment.");
   }
 };
 
 const chatWithGemini = async (history, message, feature = 'chat') => {
-  if (USE_OPENROUTER && OPENROUTER_API_KEY) {
-    // OpenRouter chat implementation
-    try {
-      const formattedHistory = history.map(h => ({
-        role: h.role === 'model' ? 'assistant' : h.role,
-        content: h.parts[0].text
-      }));
-      formattedHistory.push({ role: 'user', content: message });
-
-      const response = await axios.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        {
-          model: MODELS.openrouter,
-          messages: formattedHistory,
-        },
-        {
-          headers: {
-            "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-          },
-        }
-      );
-
-      const text = response.data.choices[0].message.content;
-      return text;
-    } catch (error) {
-      console.error('OpenRouter Chat Error:', error.message);
-      throw new Error("Chat failed via OpenRouter.");
-    }
-  }
-
   if (!genAI) {
     throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
   }

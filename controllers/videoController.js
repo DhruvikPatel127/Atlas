@@ -15,13 +15,13 @@ const generateWhiteboardTutorial = async (req, res) => {
     
     Structure the tutorial into 3-4 comprehensive steps. For each step:
     - title: A short, professional heading.
-    - writing: Exactly what you would draw or write on the whiteboard (formulas, diagrams described in text, or structured bullet points).
+    - writing: Exactly what you would draw or write on the whiteboard. This MUST include specific formulas, key terms, or a structured summary. DO NOT return "N/A". If there is no specific formula, write the core principle or a summary of the concept.
     - narration: A detailed, conversational, and insightful explanation. Start with 'Now, let's look at...' or 'To truly understand this, we need to...'. Use an encouraging teacher's tone.
 
     Notes: ${note.content}
 
     The response MUST be a single, valid JSON object:
-    {"steps": [{"title": "Concept Foundation", "writing": "Main Formula/Rule", "narration": "Deep explanation text"}]} `;
+    {"steps": [{"title": "Concept Foundation", "writing": "Main Formula/Rule or Key Concept Summary", "narration": "Deep explanation text"}]} `;
 
     const aiResponse = await generateContent(prompt, 'whiteboard_script', 1, true);
     
@@ -38,10 +38,17 @@ const generateWhiteboardTutorial = async (req, res) => {
         let jsonPart = cleaned.substring(start, end + 1);
         
         // 3. Fix potential internal unescaped newlines BEFORE parsing
-        // This is a common AI error where it puts real enters inside JSON strings
         jsonPart = jsonPart.replace(/\n/g, ' '); 
         
         scriptData = JSON.parse(jsonPart);
+
+        // 4. Sanitize the writing field to avoid "N/A"
+        if (scriptData.steps) {
+          scriptData.steps = scriptData.steps.map(step => ({
+            ...step,
+            writing: (step.writing && step.writing.toUpperCase() !== 'N/A') ? step.writing : "Key Study Concept"
+          }));
+        }
       } else {
         throw new Error("Incomplete JSON structure");
       }

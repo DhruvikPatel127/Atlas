@@ -22,56 +22,10 @@ const getNextGenAI = () => {
   return instance;
 };
 
-// Only use gemini-3.5-flash as requested by the user for perfect consistency.
+// Using gemini-3.5-flash as requested by the user
 const MODELS = [
   "gemini-3.5-flash"
 ];
-
-const callOpenRouter = async (prompt, modelName, forceJson) => {
-  if (!process.env.OPENROUTER_API_KEY) return null;
-  
-  try {
-    console.log('Attempting fallback: OpenRouter...');
-    const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-      model: 'google/gemini-2.0-flash-001', // Map to a real Gemini model on OpenRouter
-      messages: [{ role: 'user', content: prompt }],
-      response_format: forceJson ? { type: 'json_object' } : undefined,
-      temperature: forceJson ? 0.1 : 0.7
-    }, {
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    return response.data.choices[0].message.content;
-  } catch (err) {
-    console.error('OpenRouter Fallback Failed:', err.message);
-    return null;
-  }
-};
-
-const callDeepSeek = async (prompt, forceJson) => {
-  if (!process.env.DEEPSEEK_API_KEY) return null;
-  
-  try {
-    console.log('Attempting fallback: DeepSeek...');
-    const response = await axios.post('https://api.deepseek.com/v1/chat/completions', {
-      model: 'deepseek-chat',
-      messages: [{ role: 'user', content: prompt }],
-      response_format: forceJson ? { type: 'json_object' } : undefined,
-      temperature: forceJson ? 0.1 : 0.7
-    }, {
-      headers: {
-        'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    return response.data.choices[0].message.content;
-  } catch (err) {
-    console.error('DeepSeek Fallback Failed:', err.message);
-    return null;
-  }
-};
 
 const generateContent = async (prompt, feature = 'general', attempt = 1, forceJson = false) => {
   const genAI = getNextGenAI();
@@ -102,18 +56,16 @@ const generateContent = async (prompt, feature = 'general', attempt = 1, forceJs
       }
     } catch (error) {
       console.error(`Gemini Primary Error:`, error.message);
+      
+      // Retry logic for 503/429 errors if multiple keys are available
+      if ((error.message.includes("503") || error.message.includes("429")) && attempt < genAIInstances.length) {
+        console.log(`Retrying with next key due to service unavailability...`);
+        return generateContent(prompt, feature, attempt + 1, forceJson);
+      }
     }
   }
 
-  // 2. Fallback to OpenRouter
-  const orResponse = await callOpenRouter(prompt, modelName, forceJson);
-  if (orResponse) return orResponse;
-
-  // 3. Fallback to DeepSeek
-  const dsResponse = await callDeepSeek(prompt, forceJson);
-  if (dsResponse) return dsResponse;
-
-  throw new Error("All AI providers failed. Please check your API keys and quotas.");
+  throw new Error("Gemini AI is currently unavailable. Please check your API keys and quotas.");
 };
 
 const chatWithGemini = async (history, message, feature = 'chat', attempt = 1) => {
@@ -142,19 +94,16 @@ const chatWithGemini = async (history, message, feature = 'chat', attempt = 1) =
       if (text) return text;
     } catch (error) {
       console.error(`Gemini Chat Primary Error:`, error.message);
+      
+      // Retry logic for 503/429 errors if multiple keys are available
+      if ((error.message.includes("503") || error.message.includes("429")) && attempt < genAIInstances.length) {
+        console.log(`Retrying chat with next key due to service unavailability...`);
+        return chatWithGemini(history, message, feature, attempt + 1);
+      }
     }
   }
 
-  // Simple prompt for fallbacks in chat mode
-  const prompt = `History:\n${history.map(h => `${h.role}: ${h.parts[0].text}`).join('\n')}\nUser: ${message}`;
-  
-  const orResponse = await callOpenRouter(prompt, modelName, false);
-  if (orResponse) return orResponse;
-
-  const dsResponse = await callDeepSeek(prompt, false);
-  if (dsResponse) return dsResponse;
-
-  throw new Error("Chat AI is currently unavailable across all providers.");
+  throw new Error("Chat AI is currently unavailable.");
 };
 
 const extractTextFromBuffer = async (buffer, mimeType, attempt = 1) => {
