@@ -22,14 +22,15 @@ const getNextAI = () => {
   return instance;
 };
 
-// Using gemini-3.5-flash as requested by the user from AI Studio docs
+// Model list for fallback
 const MODELS = [
-  "gemini-3.5-flash"
+  "gemini-3.5-flash",
+  "gemini-1.5-flash"
 ];
 
-const generateContent = async (prompt, feature = 'general', attempt = 1, forceJson = false) => {
+const generateContent = async (prompt, feature = 'general', attempt = 1, modelIndex = 0, forceJson = false) => {
   const ai = getNextAI();
-  const modelName = MODELS[0];
+  const modelName = MODELS[modelIndex];
   
   if (ai) {
     try {
@@ -54,25 +55,31 @@ const generateContent = async (prompt, feature = 'general', attempt = 1, forceJs
         return text;
       }
     } catch (error) {
-      console.error(`Gemini Primary Error:`, error.message);
+      const errorMsg = error.message || JSON.stringify(error);
+      console.error(`Gemini Primary Error (${modelName}):`, errorMsg);
       
-      // Retry logic for 503/429 errors if multiple keys are available
-      if ((error.message.includes("503") || error.message.includes("429") || error.message.includes("overloaded")) && attempt < aiInstances.length) {
-        // Exponential backoff: 2s, 4s, 8s...
+      // 1. Try next key with SAME model
+      if (attempt < aiInstances.length) {
         const delay = Math.pow(2, attempt) * 1000;
-        console.log(`Retrying with next key in ${delay/1000} seconds due to service unavailability...`);
+        console.log(`Retrying with next key in ${delay/1000}s...`);
         await new Promise(resolve => setTimeout(resolve, delay));
-        return generateContent(prompt, feature, attempt + 1, forceJson);
+        return generateContent(prompt, feature, attempt + 1, modelIndex, forceJson);
+      } 
+      
+      // 2. If all keys failed for current model, try next model in list
+      if (modelIndex < MODELS.length - 1) {
+        console.log(`All keys failed for ${modelName}. Falling back to ${MODELS[modelIndex + 1]}...`);
+        return generateContent(prompt, feature, 1, modelIndex + 1, forceJson);
       }
     }
   }
 
-  throw new Error("Gemini AI is currently unavailable. Please check your API keys and quotas.");
+  throw new Error(`Gemini AI is currently unavailable after trying ${MODELS.length} models and ${aiInstances.length} keys.`);
 };
 
-const chatWithGemini = async (history, message, feature = 'chat', attempt = 1) => {
+const chatWithGemini = async (history, message, feature = 'chat', attempt = 1, modelIndex = 0) => {
   const ai = getNextAI();
-  const modelName = MODELS[0];
+  const modelName = MODELS[modelIndex];
   
   if (ai) {
     try {
@@ -99,13 +106,19 @@ const chatWithGemini = async (history, message, feature = 'chat', attempt = 1) =
 
       if (text) return text;
     } catch (error) {
-      console.error(`Gemini Chat Primary Error:`, error.message);
+      const errorMsg = error.message || JSON.stringify(error);
+      console.error(`Gemini Chat Primary Error (${modelName}):`, errorMsg);
       
-      if ((error.message.includes("503") || error.message.includes("429") || error.message.includes("overloaded")) && attempt < aiInstances.length) {
+      if (attempt < aiInstances.length) {
         const delay = Math.pow(2, attempt) * 1000;
-        console.log(`Retrying chat with next key in ${delay/1000} seconds...`);
+        console.log(`Retrying chat with next key in ${delay/1000}s...`);
         await new Promise(resolve => setTimeout(resolve, delay));
-        return chatWithGemini(history, message, feature, attempt + 1);
+        return chatWithGemini(history, message, feature, attempt + 1, modelIndex);
+      }
+
+      if (modelIndex < MODELS.length - 1) {
+        console.log(`Chat failed for ${modelName}. Falling back to ${MODELS[modelIndex + 1]}...`);
+        return chatWithGemini(history, message, feature, 1, modelIndex + 1);
       }
     }
   }
@@ -113,9 +126,9 @@ const chatWithGemini = async (history, message, feature = 'chat', attempt = 1) =
   throw new Error("Chat AI is currently unavailable.");
 };
 
-const extractTextFromBuffer = async (buffer, mimeType, attempt = 1) => {
+const extractTextFromBuffer = async (buffer, mimeType, attempt = 1, modelIndex = 0) => {
   const ai = getNextAI();
-  const modelName = MODELS[0];
+  const modelName = MODELS[modelIndex];
   
   if (!ai) throw new Error("AI not initialized");
 
@@ -141,13 +154,19 @@ const extractTextFromBuffer = async (buffer, mimeType, attempt = 1) => {
     
     return response.text;
   } catch (error) {
-    console.error(`Extraction error (Key #${currentKeyIndex}):`, error.message);
+    const errorMsg = error.message || JSON.stringify(error);
+    console.error(`Extraction error (${modelName}):`, errorMsg);
     
-    if ((error.message.includes("429") || error.message.includes("503") || error.message.includes("overloaded")) && attempt < aiInstances.length) {
+    if (attempt < aiInstances.length) {
       const delay = Math.pow(2, attempt) * 1000;
-      console.log(`Retrying extraction with next key in ${delay/1000} seconds...`);
+      console.log(`Retrying extraction with next key in ${delay/1000}s...`);
       await new Promise(resolve => setTimeout(resolve, delay));
-      return extractTextFromBuffer(buffer, mimeType, attempt + 1);
+      return extractTextFromBuffer(buffer, mimeType, attempt + 1, modelIndex);
+    }
+
+    if (modelIndex < MODELS.length - 1) {
+      console.log(`Extraction failed for ${modelName}. Falling back to ${MODELS[modelIndex + 1]}...`);
+      return extractTextFromBuffer(buffer, mimeType, 1, modelIndex + 1);
     }
     
     throw error;
