@@ -22,9 +22,9 @@ const getNextAI = () => {
   return instance;
 };
 
-// Model list for fallback
+// Model list for fallback - Using officially supported model names
 const MODELS = [
-  "gemini-3.5-flash",
+  "gemini-2.0-flash",
   "gemini-1.5-flash"
 ];
 
