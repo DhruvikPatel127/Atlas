@@ -53,12 +53,10 @@ const generateWhiteboardTutorial = async (req, res) => {
         }
         
         // 3. Robust Cleaning for unescaped characters
-        // Replace actual newlines with escaped newlines inside strings
-        jsonPart = jsonPart.replace(/\n/g, '\\n');
-        // But we need to keep the structural newlines if they are there, 
-        // actually standard JSON.parse handles \n better if they are escaped.
-        // Let's use a more targeted approach: 
-        // Remove literal newlines that are NOT part of the JSON structure
+        // We only want to escape newlines that are INSIDE the JSON strings, 
+        // not the ones that are part of the JSON structure.
+        // A safer way is to remove actual newlines that would break JSON.parse
+        jsonPart = jsonPart.replace(/[\r\n]+/g, ' '); 
         
         try {
           scriptData = JSON.parse(jsonPart);
