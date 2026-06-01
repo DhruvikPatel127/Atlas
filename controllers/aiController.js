@@ -15,10 +15,10 @@ if (process.env.GEMINI_API_KEY) {
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const USE_OPENROUTER = process.env.USE_OPENROUTER === 'true';
 
-// Fallback model chain for the new SDK
+// Fallback model chain with v1beta compatible IDs
 const MODELS = [
   "gemini-3.5-flash",
-  "gemini-1.5-flash"
+  "gemini-1.5-flash-latest"
 ];
 
 const generateContent = async (prompt, feature = 'general', modelIndex = 0) => {

@@ -23,10 +23,10 @@ const getNextAI = () => {
   return instance;
 };
 
-// Use the exact model IDs supported by the v1beta API in the new SDK
+// Use stable model IDs for v1beta compatibility as suggested by analysis
 const MODELS = [
   "gemini-3.5-flash",
-  "gemini-1.5-flash"
+  "gemini-1.5-flash-latest"
 ];
 
 const generateContent = async (prompt, feature = 'general', attempt = 1, forceJson = false, modelIndex = 0) => {
