@@ -1,15 +1,15 @@
-const { GoogleGenAI } = require("@google/genai");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 const axios = require('axios');
 const dotenv = require('dotenv');
 const { aiRequestCounter, aiTokensUsed } = require('../config/monitoring');
 
 dotenv.config();
 
-// Initialize genAI only if key is available using the NEW @google/genai SDK
-let ai;
+// Initialize genAI only if key is available using the stable SDK
+let genAI;
 if (process.env.GEMINI_API_KEY) {
   const apiKey = process.env.GEMINI_API_KEY.trim().replace(/["']/g, '');
-  ai = new GoogleGenAI({ apiKey: apiKey });
+  genAI = new GoogleGenerativeAI(apiKey);
 }
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
@@ -17,29 +17,30 @@ const USE_OPENROUTER = process.env.USE_OPENROUTER === 'true';
 
 // Fallback model chain
 const MODELS = [
-  "gemini-2.0-flash",
-  "gemini-1.5-flash"
+  "gemini-1.5-flash",
+  "gemini-1.5-pro"
 ];
 
 const generateContent = async (prompt, feature = 'general', modelIndex = 0) => {
-  if (!ai) {
+  if (!genAI) {
     throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
   }
   
   const currentModel = MODELS[modelIndex];
   try {
-    console.log(`Attempting generateContent with ${currentModel} using @google/genai...`);
+    console.log(`Attempting generateContent with ${currentModel} using @google/generative-ai...`);
     
-    const response = await ai.models.generateContent({
+    const model = genAI.getGenerativeModel({ 
       model: currentModel,
-      contents: prompt,
-      config: {
+      generationConfig: {
         maxOutputTokens: 2048,
         temperature: 0.7,
       }
     });
     
-    const text = response.text;
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
     
     if (!text) throw new Error("Empty response from Gemini");
     
@@ -58,32 +59,29 @@ const generateContent = async (prompt, feature = 'general', modelIndex = 0) => {
 };
 
 const chatWithGemini = async (history, message, feature = 'chat', modelIndex = 0) => {
-  if (!ai) {
+  if (!genAI) {
     throw new Error("GEMINI_API_KEY is missing. Please set it in your environment variables.");
   }
   
   const currentModel = MODELS[modelIndex];
   try {
-    console.log(`Attempting chat with ${currentModel} using @google/genai...`);
+    console.log(`Attempting chat with ${currentModel} using @google/generative-ai...`);
     
-    const contents = [
-      ...history.map(h => ({
-        role: h.role === 'model' ? 'assistant' : h.role,
-        parts: [{ text: h.parts[0].text }]
-      })),
-      { role: 'user', parts: [{ text: message }] }
-    ];
-
-    const response = await ai.models.generateContent({
+    const model = genAI.getGenerativeModel({ 
       model: currentModel,
-      contents: contents,
-      config: {
+      generationConfig: {
         maxOutputTokens: 1024,
         temperature: 0.9,
       }
     });
     
-    const text = response.text;
+    const chat = model.startChat({ 
+      history: history.slice(-10),
+    });
+    
+    const result = await chat.sendMessage(message);
+    const response = await result.response;
+    const text = response.text();
     return text;
   } catch (error) {
     if ((error.message.includes("429") || error.message.includes("503") || error.message.includes("demand")) && modelIndex < MODELS.length - 1) {
