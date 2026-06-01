@@ -58,8 +58,10 @@ const generateContent = async (prompt, feature = 'general', attempt = 1, forceJs
       
       // Retry logic for 503/429 errors if multiple keys are available
       if ((error.message.includes("503") || error.message.includes("429") || error.message.includes("overloaded")) && attempt < aiInstances.length) {
-        console.log(`Retrying with next key in 2 seconds due to service unavailability...`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Exponential backoff: 2s, 4s, 8s...
+        const delay = Math.pow(2, attempt) * 1000;
+        console.log(`Retrying with next key in ${delay/1000} seconds due to service unavailability...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
         return generateContent(prompt, feature, attempt + 1, forceJson);
       }
     }
@@ -76,8 +78,6 @@ const chatWithGemini = async (history, message, feature = 'chat', attempt = 1) =
     try {
       console.log(`Attempting chat (Attempt ${attempt}) with Key #${currentKeyIndex} using ${modelName}...`);
       
-      // Format history for the new SDK
-      // The new SDK expects a specific format for contents
       const contents = [
         ...history.map(h => ({
           role: h.role === 'model' ? 'assistant' : h.role,
@@ -102,8 +102,9 @@ const chatWithGemini = async (history, message, feature = 'chat', attempt = 1) =
       console.error(`Gemini Chat Primary Error:`, error.message);
       
       if ((error.message.includes("503") || error.message.includes("429") || error.message.includes("overloaded")) && attempt < aiInstances.length) {
-        console.log(`Retrying chat with next key in 2 seconds...`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        const delay = Math.pow(2, attempt) * 1000;
+        console.log(`Retrying chat with next key in ${delay/1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
         return chatWithGemini(history, message, feature, attempt + 1);
       }
     }
@@ -143,8 +144,9 @@ const extractTextFromBuffer = async (buffer, mimeType, attempt = 1) => {
     console.error(`Extraction error (Key #${currentKeyIndex}):`, error.message);
     
     if ((error.message.includes("429") || error.message.includes("503") || error.message.includes("overloaded")) && attempt < aiInstances.length) {
-      console.log(`Retrying extraction with next key in 2 seconds...`);
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const delay = Math.pow(2, attempt) * 1000;
+      console.log(`Retrying extraction with next key in ${delay/1000} seconds...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
       return extractTextFromBuffer(buffer, mimeType, attempt + 1);
     }
     

@@ -30,17 +30,48 @@ const generateWhiteboardTutorial = async (req, res) => {
       // 1. Clean common AI noise
       let cleaned = aiResponse.replace(/```json|```/g, '').trim();
       
-      // 2. Find the FIRST { and the LAST } to ensure we have a full object
+      // 2. Find the FIRST { and attempt to find the LAST }
       const start = cleaned.indexOf('{');
-      const end = cleaned.lastIndexOf('}');
+      let end = cleaned.lastIndexOf('}');
       
-      if (start !== -1 && end !== -1) {
-        let jsonPart = cleaned.substring(start, end + 1);
+      if (start !== -1) {
+        let jsonPart;
+        if (end === -1 || end < start) {
+          // If no closing brace is found, the AI response was likely truncated.
+          // We'll attempt to close it manually to save what we can.
+          console.warn('AI response appears truncated. Attempting to repair JSON.');
+          jsonPart = cleaned.substring(start) + '\n    ]\n}'; 
+          
+          // Count open and close brackets to be safer
+          const openBrackets = (jsonPart.match(/\{/g) || []).length;
+          const closeBrackets = (jsonPart.match(/\}/g) || []).length;
+          for (let i = 0; i < openBrackets - closeBrackets; i++) {
+            jsonPart += '}';
+          }
+        } else {
+          jsonPart = cleaned.substring(start, end + 1);
+        }
         
-        // 3. Fix potential internal unescaped newlines BEFORE parsing
-        jsonPart = jsonPart.replace(/\n/g, ' '); 
+        // 3. Robust Cleaning for unescaped characters
+        // Replace actual newlines with escaped newlines inside strings
+        jsonPart = jsonPart.replace(/\n/g, '\\n');
+        // But we need to keep the structural newlines if they are there, 
+        // actually standard JSON.parse handles \n better if they are escaped.
+        // Let's use a more targeted approach: 
+        // Remove literal newlines that are NOT part of the JSON structure
         
-        scriptData = JSON.parse(jsonPart);
+        try {
+          scriptData = JSON.parse(jsonPart);
+        } catch (innerError) {
+          // If JSON.parse fails, try to fix common issues like trailing commas or unescaped quotes
+          console.log('Standard JSON.parse failed, attempting aggressive repair...');
+          let repaired = jsonPart
+            .replace(/,\s*([\]\}])/g, '$1') // Remove trailing commas
+            .replace(/([^\\])"/g, '$1\\"') // Escape unescaped quotes (simplified)
+            .replace(/\\"/g, '"'); // Unescape correctly escaped quotes
+            
+          scriptData = JSON.parse(repaired);
+        }
 
         // 4. Sanitize the writing field to avoid "N/A"
         if (scriptData.steps) {
@@ -50,16 +81,17 @@ const generateWhiteboardTutorial = async (req, res) => {
           }));
         }
       } else {
-        throw new Error("Incomplete JSON structure");
+        throw new Error("No JSON object found in AI response");
       }
     } catch (parseError) {
       console.error('Whiteboard JSON Parse Error. Raw Response:', aiResponse);
       
-      // 4. Emergency Recovery: Manual extraction of partial steps
+      // 5. Emergency Recovery: Manual extraction of steps using a more flexible regex
       const steps = [];
-      const regex = /\{"title":\s*"([^"]+)",\s*"writing":\s*"([^"]+)",\s*"narration":\s*"([^"]+)"\}/g;
+      // Regex to find objects with title, writing, and narration even in broken JSON
+      const stepRegex = /\{\s*"title":\s*"([^"]+)"\s*,\s*"writing":\s*"([^"]+)"\s*,\s*"narration":\s*"([^"]+)"\s*\}/g;
       let match;
-      while ((match = regex.exec(aiResponse)) !== null) {
+      while ((match = stepRegex.exec(aiResponse)) !== null) {
         steps.push({
           title: match[1],
           writing: match[2],
@@ -70,7 +102,22 @@ const generateWhiteboardTutorial = async (req, res) => {
       if (steps.length > 0) {
         scriptData = { steps };
       } else {
-        throw new Error('AI failed to generate a valid whiteboard session. Please try again.');
+        // Last ditch effort: if we have a truncated first step, extract it manually
+        const titleMatch = aiResponse.match(/"title":\s*"([^"]+)"/);
+        const writingMatch = aiResponse.match(/"writing":\s*"([^"]+)"/);
+        const narrationMatch = aiResponse.match(/"narration":\s*"([^"]+)"/);
+        
+        if (titleMatch && writingMatch) {
+          scriptData = {
+            steps: [{
+              title: titleMatch[1],
+              writing: writingMatch[1],
+              narration: narrationMatch ? narrationMatch[1] : "Explaining the core concepts..."
+            }]
+          };
+        } else {
+          throw new Error('AI failed to generate a valid whiteboard session. Please try again.');
+        }
       }
     }
 
