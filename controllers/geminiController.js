@@ -40,7 +40,7 @@ const generateContent = async (prompt, feature = 'general', attempt = 1, forceJs
         model: modelName,
         contents: prompt,
         config: {
-          maxOutputTokens: 2048,
+          maxOutputTokens: feature === 'whiteboard_script' ? 4096 : 2048,
           temperature: forceJson ? 0.1 : 0.7,
           topP: 0.8,
           topK: 40,

@@ -40,14 +40,26 @@ const generateWhiteboardTutorial = async (req, res) => {
           // If no closing brace is found, the AI response was likely truncated.
           // We'll attempt to close it manually to save what we can.
           console.warn('AI response appears truncated. Attempting to repair JSON.');
-          jsonPart = cleaned.substring(start) + '\n    ]\n}'; 
+          let partial = cleaned.substring(start);
           
-          // Count open and close brackets to be safer
-          const openBrackets = (jsonPart.match(/\{/g) || []).length;
-          const closeBrackets = (jsonPart.match(/\}/g) || []).length;
-          for (let i = 0; i < openBrackets - closeBrackets; i++) {
-            jsonPart += '}';
+          // Check if we are stuck inside a quoted string
+          const lastQuote = partial.lastIndexOf('"');
+          const lastColon = partial.lastIndexOf(':');
+          const lastOpenBrace = partial.lastIndexOf('{');
+          const lastCloseBrace = partial.lastIndexOf('}');
+          
+          if (lastQuote > lastColon && lastQuote > lastOpenBrace && lastQuote > lastCloseBrace) {
+            // We are likely inside a string value (like narration)
+            partial += '"';
           }
+
+          // Close current object if needed
+          if (lastOpenBrace > lastCloseBrace) {
+            partial += '}';
+          }
+
+          // Close the array and root object
+          jsonPart = partial + '\n    ]\n}'; 
         } else {
           jsonPart = cleaned.substring(start, end + 1);
         }
