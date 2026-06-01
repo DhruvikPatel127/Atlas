@@ -13,7 +13,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
+    "@google/genai": "^2.7.0",
     "@sendgrid/mail": "^8.1.6",
     "@sentry/node": "^10.53.1",
     "analytics-node": "^6.2.0",

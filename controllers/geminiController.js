@@ -1,19 +1,19 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { GoogleGenAI } = require("@google/genai");
 const dotenv = require('dotenv');
 const axios = require('axios');
 const { aiRequestCounter, aiTokensUsed } = require('../config/monitoring');
 
 dotenv.config();
 
-// Support multiple API keys for rotation
+// Support multiple API keys for rotation using the NEW @google/genai SDK
 let aiInstances = [];
 let currentKeyIndex = 0;
 
 if (process.env.GEMINI_API_KEY) {
   const keys = process.env.GEMINI_API_KEY.split(',').map(k => k.trim().replace(/["']/g, ''));
-  // Use stable SDK: new GoogleGenerativeAI(key)
-  aiInstances = keys.map(key => new GoogleGenerativeAI(key));
-  console.log(`Initialized AI Rotation with ${aiInstances.length} API keys using @google/generative-ai SDK.`);
+  // Use the new SDK initialization from documentation
+  aiInstances = keys.map(key => new GoogleGenAI({ apiKey: key }));
+  console.log(`Initialized AI Rotation with ${aiInstances.length} API keys using @google/genai SDK.`);
 }
 
 const getNextAI = () => {
@@ -23,32 +23,31 @@ const getNextAI = () => {
   return instance;
 };
 
-// Use stable model IDs that work with @google/generative-ai
+// Use the exact model IDs supported by the v1beta API in the new SDK
 const MODELS = [
-  "gemini-1.5-flash",
-  "gemini-1.5-pro"
+  "gemini-3.5-flash",
+  "gemini-1.5-flash"
 ];
 
 const generateContent = async (prompt, feature = 'general', attempt = 1, forceJson = false, modelIndex = 0) => {
-  const genAI = getNextAI();
+  const ai = getNextAI();
   const currentModel = MODELS[modelIndex];
   
-  if (genAI) {
+  if (ai) {
     try {
       console.log(`Attempting generateContent (Attempt ${attempt}) with Key #${currentKeyIndex} using ${currentModel}...`);
       
-      const model = genAI.getGenerativeModel({ 
+      const response = await ai.models.generateContent({
         model: currentModel,
-        generationConfig: {
+        contents: prompt,
+        config: {
           maxOutputTokens: feature === 'whiteboard_script' ? 4096 : 2048,
           temperature: forceJson ? 0.1 : 0.7,
           responseMimeType: forceJson ? "application/json" : "text/plain",
         }
       });
       
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
+      const text = response.text;
       
       if (text) {
         aiRequestCounter.labels(feature, currentModel, 'success').inc();
@@ -58,15 +57,17 @@ const generateContent = async (prompt, feature = 'general', attempt = 1, forceJs
       const errorMsg = error.message || JSON.stringify(error);
       console.error(`Gemini Error (${currentModel}):`, errorMsg);
       
+      // 1. If high demand or rate limit, rotate keys for the SAME model
       if ((errorMsg.includes("503") || errorMsg.includes("429") || errorMsg.includes("demand")) && attempt < aiInstances.length) {
-        const delay = Math.pow(2, attempt) * 1000 + 1000;
-        console.log(`High demand on ${currentModel}. Retrying with next key in ${delay/1000}s...`);
+        const delay = Math.pow(2, attempt) * 1500 + 1500;
+        console.log(`Model ${currentModel} is busy. Rotating key in ${delay/1000}s...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         return generateContent(prompt, feature, attempt + 1, forceJson, modelIndex);
       }
       
+      // 2. If all keys failed for current model, or if it's a 404 (Not Found), try fallback model
       if (modelIndex < MODELS.length - 1) {
-        console.log(`All keys failed for ${currentModel}. Falling back to ${MODELS[modelIndex + 1]}...`);
+        console.log(`Model ${currentModel} failed. Falling back to ${MODELS[modelIndex + 1]}...`);
         return generateContent(prompt, feature, 1, forceJson, modelIndex + 1);
       }
     }
@@ -76,28 +77,31 @@ const generateContent = async (prompt, feature = 'general', attempt = 1, forceJs
 };
 
 const chatWithGemini = async (history, message, feature = 'chat', attempt = 1, modelIndex = 0) => {
-  const genAI = getNextAI();
+  const ai = getNextAI();
   const currentModel = MODELS[modelIndex];
   
-  if (genAI) {
+  if (ai) {
     try {
       console.log(`Attempting chat (Attempt ${attempt}) with Key #${currentKeyIndex} using ${currentModel}...`);
       
-      const model = genAI.getGenerativeModel({ 
+      const contents = [
+        ...history.map(h => ({
+          role: h.role === 'model' ? 'assistant' : h.role,
+          parts: [{ text: h.parts[0].text }]
+        })),
+        { role: 'user', parts: [{ text: message }] }
+      ];
+
+      const response = await ai.models.generateContent({
         model: currentModel,
-        generationConfig: {
+        contents: contents,
+        config: {
           maxOutputTokens: 1024,
           temperature: 0.9,
         }
       });
       
-      const chat = model.startChat({ 
-        history: history.slice(-10),
-      });
-      
-      const result = await chat.sendMessage(message);
-      const response = await result.response;
-      const text = response.text();
+      const text = response.text;
 
       if (text) return text;
     } catch (error) {
@@ -105,7 +109,7 @@ const chatWithGemini = async (history, message, feature = 'chat', attempt = 1, m
       console.error(`Gemini Chat Error (${currentModel}):`, errorMsg);
       
       if ((errorMsg.includes("503") || errorMsg.includes("429") || errorMsg.includes("demand")) && attempt < aiInstances.length) {
-        const delay = Math.pow(2, attempt) * 1000 + 1000;
+        const delay = Math.pow(2, attempt) * 1500 + 1500;
         await new Promise(resolve => setTimeout(resolve, delay));
         return chatWithGemini(history, message, feature, attempt + 1, modelIndex);
       }
@@ -116,37 +120,42 @@ const chatWithGemini = async (history, message, feature = 'chat', attempt = 1, m
     }
   }
 
-  throw new Error("Chat is temporarily unavailable due to extreme demand.");
+  throw new Error("Chat is temporarily unavailable.");
 };
 
 const extractTextFromBuffer = async (buffer, mimeType, attempt = 1, modelIndex = 0) => {
-  const genAI = getNextAI();
+  const ai = getNextAI();
   const currentModel = MODELS[modelIndex];
   
-  if (!genAI) throw new Error("AI not initialized");
+  if (!ai) throw new Error("AI not initialized");
 
   try {
     console.log(`Attempting extraction (Attempt ${attempt}) with Key #${currentKeyIndex} using ${currentModel}...`);
     
-    const model = genAI.getGenerativeModel({ model: currentModel });
-    const result = await model.generateContent([
-      { text: "Extract all text from this file. Return only the transcribed text." },
-      {
-        inlineData: {
-          data: buffer.toString("base64"),
-          mimeType: mimeType,
+    const response = await ai.models.generateContent({
+      model: currentModel,
+      contents: [
+        {
+          parts: [
+            { text: "Extract all text from this file. Return only the transcribed text." },
+            {
+              inlineData: {
+                data: buffer.toString("base64"),
+                mimeType: mimeType,
+              }
+            }
+          ]
         }
-      }
-    ]);
+      ]
+    });
     
-    const response = await result.response;
-    return response.text();
+    return response.text;
   } catch (error) {
     const errorMsg = error.message || JSON.stringify(error);
     console.error(`Extraction error (${currentModel}):`, errorMsg);
     
     if ((errorMsg.includes("429") || errorMsg.includes("503") || errorMsg.includes("demand")) && attempt < aiInstances.length) {
-      const delay = Math.pow(2, attempt) * 1000 + 1000;
+      const delay = Math.pow(2, attempt) * 1500 + 1500;
       await new Promise(resolve => setTimeout(resolve, delay));
       return extractTextFromBuffer(buffer, mimeType, attempt + 1, modelIndex);
     }
