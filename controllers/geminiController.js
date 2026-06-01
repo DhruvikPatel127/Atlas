@@ -23,19 +23,19 @@ const getNextAI = () => {
   return instance;
 };
 
-// Use the exact model name from your documentation
-const PRIMARY_MODEL = "gemini-3.5-flash";
+// Model fallback chain for the new SDK
+const MODELS = ["gemini-3.5-flash", "gemini-1.5-flash"];
 
-const generateContent = async (prompt, feature = 'general', attempt = 1, forceJson = false) => {
+const generateContent = async (prompt, feature = 'general', attempt = 1, forceJson = false, modelIndex = 0) => {
   const ai = getNextAI();
+  const currentModel = MODELS[modelIndex];
   
   if (ai) {
     try {
-      console.log(`Attempting generateContent (Attempt ${attempt}) with Key #${currentKeyIndex} using ${PRIMARY_MODEL}...`);
+      console.log(`Attempting generateContent (Attempt ${attempt}) with Key #${currentKeyIndex} using ${currentModel}...`);
       
-      // Use the exact syntax from your AI Studio screenshot
       const response = await ai.models.generateContent({
-        model: PRIMARY_MODEL,
+        model: currentModel,
         contents: prompt,
         config: {
           maxOutputTokens: feature === 'whiteboard_script' ? 4096 : 2048,
@@ -47,35 +47,40 @@ const generateContent = async (prompt, feature = 'general', attempt = 1, forceJs
       const text = response.text;
       
       if (text) {
-        aiRequestCounter.labels(feature, PRIMARY_MODEL, 'success').inc();
+        aiRequestCounter.labels(feature, currentModel, 'success').inc();
         return text;
       }
     } catch (error) {
       const errorMsg = error.message || JSON.stringify(error);
-      console.error(`Gemini Error (${PRIMARY_MODEL}):`, errorMsg);
+      console.error(`Gemini Error (${currentModel}):`, errorMsg);
       
-      // Retry logic for 503 (High Demand) or 429 (Rate Limit)
+      // 1. If high demand/overloaded, try next key with same model
       if ((errorMsg.includes("503") || errorMsg.includes("429") || errorMsg.includes("demand")) && attempt < aiInstances.length) {
-        // Longer backoff for "High Demand" spikes: 3s, 6s, 12s...
-        const delay = Math.pow(2, attempt) * 1500 + 1500;
-        console.log(`Model is in high demand. Retrying with next key in ${delay/1000}s...`);
+        const delay = Math.pow(2, attempt) * 1000 + 1000;
+        console.log(`Model ${currentModel} busy. Retrying with next key in ${delay/1000}s...`);
         await new Promise(resolve => setTimeout(resolve, delay));
-        return generateContent(prompt, feature, attempt + 1, forceJson);
+        return generateContent(prompt, feature, attempt + 1, forceJson, modelIndex);
+      }
+      
+      // 2. If all keys failed for current model, fallback to the next model in chain
+      if (modelIndex < MODELS.length - 1) {
+        console.log(`All keys failed for ${currentModel}. Falling back to ${MODELS[modelIndex + 1]}...`);
+        return generateContent(prompt, feature, 1, forceJson, modelIndex + 1);
       }
     }
   }
 
-  throw new Error(`Gemini AI (${PRIMARY_MODEL}) is currently experiencing very high demand across all your keys. Please try again in a few moments.`);
+  throw new Error(`Gemini AI is currently unavailable after trying all keys and fallback models.`);
 };
 
-const chatWithGemini = async (history, message, feature = 'chat', attempt = 1) => {
+const chatWithGemini = async (history, message, feature = 'chat', attempt = 1, modelIndex = 0) => {
   const ai = getNextAI();
+  const currentModel = MODELS[modelIndex];
   
   if (ai) {
     try {
-      console.log(`Attempting chat (Attempt ${attempt}) with Key #${currentKeyIndex} using ${PRIMARY_MODEL}...`);
+      console.log(`Attempting chat (Attempt ${attempt}) with Key #${currentKeyIndex} using ${currentModel}...`);
       
-      // Format history for the new SDK structure
       const contents = [
         ...history.map(h => ({
           role: h.role === 'model' ? 'assistant' : h.role,
@@ -85,7 +90,7 @@ const chatWithGemini = async (history, message, feature = 'chat', attempt = 1) =
       ];
 
       const response = await ai.models.generateContent({
-        model: PRIMARY_MODEL,
+        model: currentModel,
         contents: contents,
         config: {
           maxOutputTokens: 1024,
@@ -94,34 +99,38 @@ const chatWithGemini = async (history, message, feature = 'chat', attempt = 1) =
       });
       
       const text = response.text;
-
       if (text) return text;
     } catch (error) {
       const errorMsg = error.message || JSON.stringify(error);
-      console.error(`Gemini Chat Error (${PRIMARY_MODEL}):`, errorMsg);
+      console.error(`Gemini Chat Error (${currentModel}):`, errorMsg);
       
       if ((errorMsg.includes("503") || errorMsg.includes("429") || errorMsg.includes("demand")) && attempt < aiInstances.length) {
-        const delay = Math.pow(2, attempt) * 1500 + 1500;
-        console.log(`Retrying chat with next key in ${delay/1000}s...`);
+        const delay = Math.pow(2, attempt) * 1000 + 1000;
         await new Promise(resolve => setTimeout(resolve, delay));
-        return chatWithGemini(history, message, feature, attempt + 1);
+        return chatWithGemini(history, message, feature, attempt + 1, modelIndex);
+      }
+
+      if (modelIndex < MODELS.length - 1) {
+        console.log(`Chat fallback to ${MODELS[modelIndex + 1]}...`);
+        return chatWithGemini(history, message, feature, 1, modelIndex + 1);
       }
     }
   }
 
-  throw new Error("Chat AI is currently unavailable due to high demand.");
+  throw new Error("Chat AI is currently unavailable.");
 };
 
-const extractTextFromBuffer = async (buffer, mimeType, attempt = 1) => {
+const extractTextFromBuffer = async (buffer, mimeType, attempt = 1, modelIndex = 0) => {
   const ai = getNextAI();
+  const currentModel = MODELS[modelIndex];
   
   if (!ai) throw new Error("AI not initialized");
 
   try {
-    console.log(`Attempting extraction (Attempt ${attempt}) with Key #${currentKeyIndex} using ${PRIMARY_MODEL}...`);
+    console.log(`Attempting extraction (Attempt ${attempt}) with Key #${currentKeyIndex} using ${currentModel}...`);
     
     const response = await ai.models.generateContent({
-      model: PRIMARY_MODEL,
+      model: currentModel,
       contents: [
         {
           parts: [
@@ -140,13 +149,16 @@ const extractTextFromBuffer = async (buffer, mimeType, attempt = 1) => {
     return response.text;
   } catch (error) {
     const errorMsg = error.message || JSON.stringify(error);
-    console.error(`Extraction error (${PRIMARY_MODEL}):`, errorMsg);
+    console.error(`Extraction error (${currentModel}):`, errorMsg);
     
     if ((errorMsg.includes("429") || errorMsg.includes("503") || errorMsg.includes("demand")) && attempt < aiInstances.length) {
-      const delay = Math.pow(2, attempt) * 1500 + 1500;
-      console.log(`Retrying extraction with next key in ${delay/1000}s...`);
+      const delay = Math.pow(2, attempt) * 1000 + 1000;
       await new Promise(resolve => setTimeout(resolve, delay));
-      return extractTextFromBuffer(buffer, mimeType, attempt + 1);
+      return extractTextFromBuffer(buffer, mimeType, attempt + 1, modelIndex);
+    }
+
+    if (modelIndex < MODELS.length - 1) {
+      return extractTextFromBuffer(buffer, mimeType, 1, modelIndex + 1);
     }
     
     throw error;
