@@ -20,7 +20,9 @@ const generateWhiteboardTutorial = async (req, res) => {
 
     Notes: ${note.content.substring(0, 4000)}
 
-    The response MUST be a single, valid JSON object:
+    The response MUST be a single, valid JSON object. 
+    IMPORTANT: Use proper JSON escaping for newlines and quotes. 
+    JSON Structure:
     {"steps": [{"title": "Step Title", "writing": "Formula/Concept", "narration": "Explanation"}]} `;
 
     let scriptData;

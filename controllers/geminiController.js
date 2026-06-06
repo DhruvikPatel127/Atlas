@@ -215,18 +215,33 @@ const safeParseAIResponse = (text) => {
     cleaned += '}';
   }
 
-  // 3. Aggressive cleaning (trailing commas, comments)
+  // 3. Aggressive cleaning (trailing commas, comments, unescaped characters)
   // Remove trailing commas before closing braces/brackets
   cleaned = cleaned.replace(/,\s*([\}\]])/g, '$1');
+
+  // Fix unescaped newlines inside JSON strings (very common in 3.5-flash)
+  // This looks for newlines that are NOT followed by a JSON structure character
+  cleaned = cleaned.replace(/\n(?![^"]*"(?:[:\],]|$))/g, '\\n');
 
   try {
     return JSON.parse(cleaned);
   } catch (e) {
     console.error('Initial JSON Parse Failed. Attempting aggressive repair...', e.message);
     
-    // Aggressive repair for truncated JSON
+    // Aggressive repair for truncated or poorly escaped JSON
     try {
-      // Fix missing closing brackets for nested structures
+      // 1. If we are stuck inside an unclosed string, close it
+      const lastQuote = cleaned.lastIndexOf('"');
+      const lastColon = cleaned.lastIndexOf(':');
+      const lastOpenBrace = cleaned.lastIndexOf('{');
+      const lastCloseBrace = cleaned.lastIndexOf('}');
+      
+      if (lastQuote > lastColon && lastQuote > lastOpenBrace && lastQuote > lastCloseBrace) {
+        // We are likely inside a string value (like narration)
+        cleaned += '"';
+      }
+
+      // 2. Fix missing closing brackets for nested structures
       let openBraces = (cleaned.match(/\{/g) || []).length;
       let closeBraces = (cleaned.match(/\}/g) || []).length;
       while (closeBraces < openBraces) {
@@ -235,15 +250,33 @@ const safeParseAIResponse = (text) => {
       }
       
       let openBrackets = (cleaned.match(/\[/g) || []).length;
-      let closeBrackets = (cleaned.match(/\]/g) || []).length;
+      let closeBrackets = (cleaned.match(/\}/g) || []).length; // Check if we meant ]
+      
+      // Re-calculate brackets properly
+      openBrackets = (cleaned.match(/\[/g) || []).length;
+      closeBrackets = (cleaned.match(/\]/g) || []).length;
       while (closeBrackets < openBrackets) {
         cleaned += ']';
         closeBrackets++;
       }
       
+      // Final attempt at parsing after structure repair
       return JSON.parse(cleaned);
     } catch (innerError) {
       console.error('Aggressive Repair Failed:', innerError.message);
+      
+      // LAST RESORT: Manual regex extraction if JSON is completely broken
+      try {
+        const steps = [];
+        const stepRegex = /\{\s*"title":\s*"([^"]+)"\s*,\s*"writing":\s*"([^"]+)"\s*,\s*"narration":\s*"([^"]+)"\s*\}/g;
+        let match;
+        while ((match = stepRegex.exec(cleaned)) !== null) {
+          steps.push({ title: match[1], writing: match[2], narration: match[3] });
+        }
+        if (steps.length > 0) return { steps };
+      } catch (regexError) {
+        return null;
+      }
       return null;
     }
   }
