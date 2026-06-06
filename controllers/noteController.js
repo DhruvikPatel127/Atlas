@@ -1,6 +1,6 @@
 const Note = require('../models/Note');
 const fs = require('fs');
-const { extractTextFromBuffer } = require('./geminiController');
+const { extractTextFromBuffer, generateContent, safeParseAIResponse } = require('./geminiController');
 
 const uploadNote = async (req, res) => {
   try {
@@ -89,22 +89,20 @@ const generateMindMap = async (req, res) => {
     const note = await Note.findById(id);
     if (!note) return res.status(404).json({ message: 'Note not found' });
 
-    const { generateContent } = require('./geminiController');
     const prompt = `Convert the following study notes into a visual mind map.
-    The response MUST be a JSON object with this structure:
-    {"nodes": [{"id": "1", "label": "Topic Name"}], "edges": [{"from": "1", "to": "2"}]}
+    The response MUST be a valid JSON object with exactly this structure:
+    {"nodes": [{"id": "1", "label": "Main Topic"}], "edges": [{"from": "1", "to": "2"}]}
     
-    Notes: ${note.content}`;
+    Notes: ${note.content.substring(0, 4000)}`;
 
     // Pass true for forceJson to use application/json mime type
     const aiResponse = await generateContent(prompt, 'mindmap', 1, true);
     
-    let mindMapData;
-    try {
-      mindMapData = JSON.parse(aiResponse);
-    } catch (parseError) {
+    const mindMapData = safeParseAIResponse(aiResponse);
+    
+    if (!mindMapData || !mindMapData.nodes || !Array.isArray(mindMapData.nodes)) {
       console.error('Mind Map Parsing Failed. AI Response:', aiResponse);
-      throw new Error('AI failed to generate a valid visual map. Please try again.');
+      throw new Error('AI failed to generate a valid visual map. Please try again with a shorter note.');
     }
     
     res.json(mindMapData);

@@ -170,8 +170,71 @@ const extractTextFromBuffer = async (buffer, mimeType, attempt = 1, modelIndex =
   }
 };
 
+/**
+ * Robustly parses AI responses into JSON objects.
+ * Handles markdown wrapping, extra text, and basic truncation.
+ */
+const safeParseAIResponse = (text) => {
+  if (!text) return null;
+  
+  let cleaned = text.trim();
+  
+  // 1. Remove markdown code blocks if present
+  if (cleaned.startsWith('```json')) {
+    cleaned = cleaned.replace(/^```json\n?/, '').replace(/\n?```$/, '');
+  } else if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```\n?/, '').replace(/\n?```$/, '');
+  }
+  
+  cleaned = cleaned.trim();
+
+  // 2. Try to find the first '{' and last '}'
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  
+  if (start !== -1 && end !== -1 && end > start) {
+    cleaned = cleaned.substring(start, end + 1);
+  } else if (start !== -1 && end === -1) {
+    // Truncated response - missing closing bracket
+    // Basic repair: append a closing bracket
+    cleaned = cleaned.substring(start) + '}';
+    // We could do more complex repair here, but usually, a simple append 
+    // helps JSON.parse get as far as it can.
+  }
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    console.error('Initial JSON Parse Failed. Attempting aggressive repair...', e.message);
+    
+    // Aggressive repair for truncated JSON
+    try {
+      // Fix missing closing brackets for nested structures
+      let openBraces = (cleaned.match(/\{/g) || []).length;
+      let closeBraces = (cleaned.match(/\}/g) || []).length;
+      while (closeBraces < openBraces) {
+        cleaned += '}';
+        closeBraces++;
+      }
+      
+      let openBrackets = (cleaned.match(/\[/g) || []).length;
+      let closeBrackets = (cleaned.match(/\]/g) || []).length;
+      while (closeBrackets < openBrackets) {
+        cleaned += ']';
+        closeBrackets++;
+      }
+      
+      return JSON.parse(cleaned);
+    } catch (innerError) {
+      console.error('Aggressive Repair Failed:', innerError.message);
+      return null;
+    }
+  }
+};
+
 module.exports = { 
   generateContent,
   chatWithGemini,
   extractTextFromBuffer,
+  safeParseAIResponse
 };

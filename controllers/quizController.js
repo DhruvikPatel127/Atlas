@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const Quiz = require('../models/Quiz');
 const Note = require('../models/Note');
 const User = require('../models/User');
-const { generateContent } = require('./geminiController');
+const { generateContent, safeParseAIResponse } = require('./geminiController');
 
 const generateQuiz = async (req, res) => {
   try {
@@ -16,25 +16,35 @@ const generateQuiz = async (req, res) => {
     const note = await Note.findById(noteId);
     if (!note) return res.status(404).json({ message: 'Note not found' });
 
-    const prompt = `Create a 5-question multiple choice quiz about: ${note.content}. 
-    Subject: ${note.subject || 'General'}.
-    The response MUST be a JSON object with this structure:
-    {"title": "Quiz Title", "subject": "Subject", "questions": [{"question": "Q", "options": ["A", "B", "C", "D"], "correctAnswer": "A"}]}`;
+    // Improved prompt: Be more concise and specific to avoid truncation
+    const prompt = `Create a 5-question multiple choice quiz based on these study notes.
+    Focus on core concepts. Keep questions and options brief.
+    
+    Notes: ${note.content.substring(0, 4000)}
+    
+    The response MUST be a valid JSON object with exactly this structure:
+    {"title": "Quiz Title", "subject": "${note.subject || 'General'}", "questions": [{"question": "...", "options": ["...", "...", "...", "..."], "correctAnswer": "..."}]}`;
 
     const aiResponse = await generateContent(prompt, 'quiz', 1, true);
     
-    let quizData;
-    try {
-      quizData = JSON.parse(aiResponse);
-      // Ensure the 'answer' field from AI is mapped to 'correctAnswer' if needed
-      quizData.questions = quizData.questions.map(q => ({
+    const quizData = safeParseAIResponse(aiResponse);
+    
+    if (!quizData || !quizData.questions || !Array.isArray(quizData.questions)) {
+      console.error('Quiz Generation Failed. Raw AI Response:', aiResponse);
+      throw new Error('AI generated an invalid quiz format. Please try again with a shorter note.');
+    }
+
+    // Ensure questions are valid and have the correct fields
+    const validatedQuestions = quizData.questions
+      .filter(q => q.question && q.options && q.options.length >= 2)
+      .map(q => ({
         question: q.question,
         options: q.options,
-        correctAnswer: q.correctAnswer || q.answer
+        correctAnswer: q.correctAnswer || q.answer || q.options[0]
       }));
-    } catch (parseError) {
-      console.error('Quiz JSON Parse Error. Raw AI Response:', aiResponse);
-      throw new Error('AI generated an invalid quiz format. Please try again.');
+
+    if (validatedQuestions.length === 0) {
+      throw new Error('AI failed to generate any valid questions. Please try again.');
     }
 
     const userId = req.user.id || req.user._id;
@@ -50,8 +60,8 @@ const generateQuiz = async (req, res) => {
       noteId: noteId,
       title: note.title,
       subject: note.subject || 'General',
-      questions: quizData.questions,
-      totalQuestions: quizData.questions.length
+      questions: validatedQuestions,
+      totalQuestions: validatedQuestions.length
     });
 
     await newQuiz.save();
