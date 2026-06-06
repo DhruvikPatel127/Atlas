@@ -8,6 +8,7 @@ router.post('/login', userController.login);
 router.post('/google-login', userController.googleLogin);
 router.get('/me', auth, userController.getMe);
 router.post('/subjects', auth, userController.addSubject);
+router.delete('/subjects/:subject', auth, userController.deleteSubject);
 router.post('/study-plan', auth, userController.generateStudyPlan);
 
 module.exports = router;

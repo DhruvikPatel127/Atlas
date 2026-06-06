@@ -1,5 +1,10 @@
 const User = require('../models/User');
+const Note = require('../models/Note');
+const Quiz = require('../models/Quiz');
+const Flashcard = require('../models/Flashcard');
+const Chat = require('../models/Chat');
 const jwt = require('jsonwebtoken');
+const fs = require('fs');
 const { OAuth2Client } = require('google-auth-library');
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -111,6 +116,46 @@ const addSubject = async (req, res) => {
   }
 };
 
+const deleteSubject = async (req, res) => {
+  try {
+    const { subject } = req.params;
+    const userId = req.user.id;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // 1. Remove subject from user's list
+    user.subjects = user.subjects.filter(s => s !== subject);
+    await user.save();
+
+    // 2. Find all notes for this subject to handle flashcards and file deletion
+    const notes = await Note.find({ userId, subject });
+    const noteIds = notes.map(n => n._id);
+
+    // Delete actual files from disk
+    notes.forEach(note => {
+      if (note.fileUrl && fs.existsSync(note.fileUrl)) {
+        try {
+          fs.unlinkSync(note.fileUrl);
+        } catch (fileErr) {
+          console.error(`Error deleting file ${note.fileUrl}:`, fileErr.message);
+        }
+      }
+    });
+
+    // 3. Delete associated data
+    await Flashcard.deleteMany({ userId, noteId: { $in: noteIds } });
+    await Note.deleteMany({ userId, subject });
+    await Quiz.deleteMany({ userId, subject });
+    await Chat.deleteMany({ userId, subject });
+
+    res.json({ message: 'Subject and all associated data deleted successfully', subjects: user.subjects });
+  } catch (err) {
+    console.error('Delete Subject Error:', err.message);
+    res.status(500).json({ message: 'Server error during subject deletion' });
+  }
+};
+
 const generateStudyPlan = async (req, res) => {
   try {
     const { examDate, examTitle, subjects } = req.body;
@@ -138,4 +183,4 @@ const generateStudyPlan = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getMe, addSubject, googleLogin, generateStudyPlan };
+module.exports = { register, login, getMe, addSubject, deleteSubject, googleLogin, generateStudyPlan };
