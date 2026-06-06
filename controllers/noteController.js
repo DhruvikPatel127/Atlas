@@ -95,19 +95,36 @@ const generateMindMap = async (req, res) => {
     
     Notes: ${note.content.substring(0, 4000)}`;
 
-    // Pass true for forceJson to use application/json mime type
-    const aiResponse = await generateContent(prompt, 'mindmap', 1, true);
+    let mindMapData;
+    try {
+      const aiResponse = await generateContent(prompt, 'mindmap', 1, true);
+      mindMapData = safeParseAIResponse(aiResponse);
+    } catch (aiError) {
+      console.error('AI Mind Map Generation failed, using fallback:', aiError.message);
+    }
     
-    const mindMapData = safeParseAIResponse(aiResponse);
-    
-    if (!mindMapData || !mindMapData.nodes || !Array.isArray(mindMapData.nodes)) {
-      console.error('Mind Map Parsing Failed. AI Response:', aiResponse);
-      throw new Error('AI failed to generate a valid visual map. Please try again with a shorter note.');
+    // If AI fails or returns invalid data, use a "Safe Fallback"
+    // This ensures the screen NEVER crashes "in any situation"
+    if (!mindMapData || !mindMapData.nodes || !Array.isArray(mindMapData.nodes) || mindMapData.nodes.length === 0) {
+      console.log('Using safe fallback mind map for note:', note.title);
+      mindMapData = {
+        nodes: [
+          { id: "1", label: note.title || "Main Topic" },
+          { id: "2", label: note.subject || "Study Note" },
+          { id: "3", label: "Key Concepts" },
+          { id: "4", label: "Review Summary" }
+        ],
+        edges: [
+          { from: "1", to: "2" },
+          { from: "1", to: "3" },
+          { from: "3", to: "4" }
+        ]
+      };
     }
     
     res.json(mindMapData);
   } catch (error) {
-    console.error('Mind map error:', error);
+    console.error('Mind map critical error:', error);
     res.status(500).json({ message: 'Error generating mind map', error: error.message });
   }
 };

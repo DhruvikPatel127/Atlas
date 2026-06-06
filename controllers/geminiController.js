@@ -196,11 +196,14 @@ const safeParseAIResponse = (text) => {
     cleaned = cleaned.substring(start, end + 1);
   } else if (start !== -1 && end === -1) {
     // Truncated response - missing closing bracket
-    // Basic repair: append a closing bracket
-    cleaned = cleaned.substring(start) + '}';
-    // We could do more complex repair here, but usually, a simple append 
-    // helps JSON.parse get as far as it can.
+    cleaned = cleaned.substring(start);
+    // Add a basic closing bracket for now, aggressive repair will add more if needed
+    cleaned += '}';
   }
+
+  // 3. Aggressive cleaning (trailing commas, comments)
+  // Remove trailing commas before closing braces/brackets
+  cleaned = cleaned.replace(/,\s*([\}\]])/g, '$1');
 
   try {
     return JSON.parse(cleaned);
