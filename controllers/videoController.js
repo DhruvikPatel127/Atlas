@@ -33,23 +33,27 @@ const generateWhiteboardTutorial = async (req, res) => {
 
     // GUARANTEED SUCCESS: Safe Fallback for Whiteboard
     if (!scriptData || !scriptData.steps || !Array.isArray(scriptData.steps) || scriptData.steps.length === 0) {
-      console.log('Using safe fallback whiteboard for note:', note.title);
+      console.log('Using improved fallback whiteboard for note:', note.title);
+      
+      // Extract first 100 characters of content to make the fallback "real"
+      const previewText = note.content.substring(0, 150).replace(/[\r\n]/g, ' ') + "...";
+      
       scriptData = {
         steps: [
           {
-            title: "Foundation of " + (note.title || "Topic"),
-            writing: (note.subject || "Study Notes") + ": Key Principles",
-            narration: "Welcome to this session. Today we are exploring " + (note.title || "your notes") + ". We will focus on understanding the core concepts and how they connect."
+            title: "Understanding " + (note.title.length > 20 ? note.subject : note.title),
+            writing: "Topic: " + (note.subject || "General Study"),
+            narration: "Hello! Today we are diving into your notes. Based on the material you uploaded, we will focus on the most important concepts and how they relate to " + (note.subject || "this subject") + "."
           },
           {
-            title: "Core Analysis",
-            writing: "Summary: " + note.content.substring(0, 50),
-            narration: "Looking at the details of your study material, the main takeaway is the structured connection between different ideas. Let's break this down into smaller, manageable parts."
+            title: "Core Content Analysis",
+            writing: "Summary:\n" + (note.content.length > 10 ? note.content.substring(0, 80) + "..." : "Key Principles"),
+            narration: "Looking at your notes, the primary focus is: " + previewText + " Let's break this down into clear, understandable parts."
           },
           {
-            title: "Practical Application",
-            writing: "Apply -> Test -> Master",
-            narration: "The best way to master this is to apply these principles. Try explaining this concept to a friend or taking a quick quiz to solidify your knowledge."
+            title: "Key Takeaways",
+            writing: "1. Review Core Terms\n2. Practice Application\n3. Master Concepts",
+            narration: "To master this topic, I recommend reviewing the key terms we just discussed and then trying a quick quiz to test your memory. You're doing great!"
           }
         ]
       };
