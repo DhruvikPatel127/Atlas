@@ -206,22 +206,25 @@ const safeParseAIResponse = (text) => {
   const start = cleaned.indexOf('{');
   const end = cleaned.lastIndexOf('}');
   
-  if (start !== -1 && end !== -1 && end > start) {
-    cleaned = cleaned.substring(start, end + 1);
-  } else if (start !== -1 && end === -1) {
-    // Truncated response - missing closing bracket
-    cleaned = cleaned.substring(start);
-    // Add a basic closing bracket for now, aggressive repair will add more if needed
-    cleaned += '}';
+  if (start !== -1) {
+    if (end !== -1 && end > start) {
+      cleaned = cleaned.substring(start, end + 1);
+    } else {
+      // Truncated or missing end
+      cleaned = cleaned.substring(start);
+    }
   }
 
   // 3. Aggressive cleaning (trailing commas, comments, unescaped characters)
+  // Remove illegal characters at the very start (e.g., invisible bytes or non-JSON text)
+  cleaned = cleaned.replace(/^[^{]*/, '');
+  
   // Remove trailing commas before closing braces/brackets
   cleaned = cleaned.replace(/,\s*([\}\]])/g, '$1');
 
-  // Fix unescaped newlines inside JSON strings (very common in 3.5-flash)
-  // This looks for newlines that are NOT followed by a JSON structure character
-  cleaned = cleaned.replace(/\n(?![^"]*"(?:[:\],]|$))/g, '\\n');
+  // Fix common "3.5-flash" unescaped character issues
+  cleaned = cleaned.replace(/\n/g, ' '); // Replace all newlines with spaces for parsing
+  cleaned = cleaned.replace(/\r/g, ''); 
 
   try {
     return JSON.parse(cleaned);
