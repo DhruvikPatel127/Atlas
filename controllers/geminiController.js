@@ -10,20 +10,27 @@ let aiInstances = [];
 let currentKeyIndex = 0;
 
 if (process.env.GEMINI_API_KEY) {
-  const keys = process.env.GEMINI_API_KEY.split(',').map(k => k.trim().replace(/["']/g, ''));
+  // Support comma-separated keys: KEY1,KEY2,KEY3
+  // Aggressively clean keys from whitespace, quotes, and newlines
+  const keys = process.env.GEMINI_API_KEY.split(',')
+    .map(k => k.trim().replace(/["'\r\n]/g, ''))
+    .filter(k => k.length > 0);
+  
   // Use the new SDK initialization from documentation
   aiInstances = keys.map(key => new GoogleGenAI({ apiKey: key }));
-  console.log(`Initialized AI Rotation with ${aiInstances.length} API keys using @google/genai SDK.`);
+  console.log(`Initialized AI Rotation with ${aiInstances.length} cleaned API keys using @google/genai SDK.`);
 }
 
 const getNextAI = () => {
   if (aiInstances.length === 0) return null;
   const instance = aiInstances[currentKeyIndex];
+  // Rotate index for next time
   currentKeyIndex = (currentKeyIndex + 1) % aiInstances.length;
   return instance;
 };
 
 // Comprehensive fallback chain for maximum reliability
+// gemini-3.5-flash is preferred by user, but we keep others as fallback
 const MODELS = [
   "gemini-3.5-flash",
   "gemini-2.0-flash",
@@ -34,48 +41,55 @@ const generateContent = async (prompt, feature = 'general', attempt = 1, forceJs
   const ai = getNextAI();
   const currentModel = MODELS[modelIndex];
   
-  if (ai) {
-    try {
-      console.log(`Attempting generateContent (Attempt ${attempt}) with Key #${currentKeyIndex} using ${currentModel}...`);
-      
-      const response = await ai.models.generateContent({
-        model: currentModel,
-        contents: prompt,
-        config: {
-          maxOutputTokens: feature === 'whiteboard_script' ? 4096 : 2048,
-          temperature: forceJson ? 0.1 : 0.7,
-          responseMimeType: forceJson ? "application/json" : "text/plain",
-        }
-      });
-      
-      const text = response.text;
-      
-      if (text) {
-        aiRequestCounter.labels(feature, currentModel, 'success').inc();
-        return text;
-      }
-    } catch (error) {
-      const errorMsg = error.message || JSON.stringify(error);
-      console.error(`Gemini Error (${currentModel}):`, errorMsg);
-      
-      // 1. If high demand/rate limit/404, rotate keys for the SAME model (up to 2 rounds)
-      if ((errorMsg.includes("503") || errorMsg.includes("429") || errorMsg.includes("demand") || errorMsg.includes("404")) && attempt < (aiInstances.length * 2)) {
-        // Longer backoff for "High Demand": 3s, 6s, 9s...
-        const delay = (attempt * 2000) + 1000;
-        console.log(`Issue with ${currentModel}. Retrying with next key in ${delay/1000}s...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return generateContent(prompt, feature, attempt + 1, forceJson, modelIndex);
-      }
-      
-      // 2. If keys are exhausted or fatal error for this model, try NEXT MODEL in chain
-      if (modelIndex < MODELS.length - 1) {
-        console.log(`${currentModel} failed completely. Falling back to ${MODELS[modelIndex + 1]}...`);
-        return generateContent(prompt, feature, 1, forceJson, modelIndex + 1);
-      }
-    }
-  }
+  if (!ai) throw new Error("GEMINI_API_KEY is missing.");
 
-  throw new Error(`All Gemini models are currently overloaded. Please try again in 5 minutes.`);
+  try {
+    console.log(`[AI] Attempt ${attempt} | Model: ${currentModel} | Key: #${currentKeyIndex}`);
+    
+    const response = await ai.models.generateContent({
+      model: currentModel,
+      contents: prompt,
+      config: {
+        maxOutputTokens: feature === 'whiteboard_script' ? 4096 : 2048,
+        temperature: forceJson ? 0.1 : 0.7,
+        responseMimeType: forceJson ? "application/json" : "text/plain",
+      }
+    });
+    
+    const text = response.text;
+    if (text) {
+      aiRequestCounter.labels(feature, currentModel, 'success').inc();
+      return text;
+    }
+    throw new Error("Empty response");
+  } catch (error) {
+    const errorMsg = (error.message || "").toLowerCase();
+    console.error(`[AI Error] ${currentModel}:`, errorMsg);
+    
+    // 1. Transient errors (Rate limit, Overloaded, Service Unavailable)
+    const isTransient = errorMsg.includes("429") || 
+                        errorMsg.includes("503") || 
+                        errorMsg.includes("overloaded") || 
+                        errorMsg.includes("demand") ||
+                        errorMsg.includes("deadline") ||
+                        errorMsg.includes("timeout");
+
+    if (isTransient && attempt < (aiInstances.length * 2)) {
+      // Exponential backoff: 1.5s, 3s, 4.5s...
+      const delay = attempt * 1500;
+      console.log(`Transient error. Retrying with next key in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return generateContent(prompt, feature, attempt + 1, forceJson, modelIndex);
+    }
+    
+    // 2. Model specific errors or keys exhausted -> Fallback to next model
+    if (modelIndex < MODELS.length - 1) {
+      console.log(`Switching model from ${currentModel} to ${MODELS[modelIndex + 1]}`);
+      return generateContent(prompt, feature, 1, forceJson, modelIndex + 1);
+    }
+    
+    throw new Error("AI is temporarily unavailable across all models and keys. Please try again later.");
+  }
 };
 
 const chatWithGemini = async (history, message, feature = 'chat', attempt = 1, modelIndex = 0) => {

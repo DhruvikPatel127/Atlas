@@ -110,14 +110,14 @@ const generateMindMap = async (req, res) => {
       mindMapData = {
         nodes: [
           { id: "1", label: note.title || "Main Topic" },
-          { id: "2", label: note.subject || "Study Note" },
-          { id: "3", label: "Key Concepts" },
-          { id: "4", label: "Review Summary" }
+          { id: "2", label: "Core Concept" },
+          { id: "3", label: "Key Summary" },
+          { id: "4", label: "Practical Application" }
         ],
         edges: [
           { from: "1", to: "2" },
           { from: "1", to: "3" },
-          { from: "3", to: "4" }
+          { from: "2", to: "4" }
         ]
       };
     }
